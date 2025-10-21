@@ -47,13 +47,12 @@ function normalizeModelId(name) {
 
 async function callGeminiWithImage(b64Image, prompt, mime = "image/png") {
   const apiKey = process.env.GOOGLE_API_KEY;
-  const preferred = normalizeModelId(process.env.MODEL_ID || "gemini-1.5-pro");
-  const candidates = [preferred];
+  const candidates = ["gemini-2.5-pro"];
   const body = {
     contents: [
       { role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b64Image } }] }
     ],
-    generationConfig: { temperature: 0.05, maxOutputTokens: 4000 }
+    generationConfig: { temperature: 0.05, maxOutputTokens: 2000 }
   };
   let lastErrText = "";
   for (const raw of candidates) {
@@ -76,9 +75,13 @@ async function callGeminiWithImage(b64Image, prompt, mime = "image/png") {
 
 async function callGeminiForEdit(spec, instruction) {
   const apiKey = process.env.GOOGLE_API_KEY;
-  const candidates = [normalizeModelId(process.env.MODEL_ID || "gemini-1.5-pro")];
-  const prompt = `You are a Vega-Lite spec editor.\nGiven a Vega-Lite JSON and an instruction, return an updated Vega-Lite JSON only.\nRules: valid JSON only, no comments.\nSpec:\n${JSON.stringify(spec)}\nInstruction: ${instruction}`;
-  const body = { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.05, maxOutputTokens: 1200 } };
+  const candidates = ["gemini-2.5-pro"];
+  const prompt = `JSON only:
+
+${JSON.stringify(spec)}
+
+${instruction}`;
+  const body = { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.05, maxOutputTokens: 4000 } };
   let lastErrText = "";
   for (const raw of candidates) {
     const model = normalizeModelId(raw);
@@ -100,7 +103,7 @@ async function callGeminiForEdit(spec, instruction) {
 
 async function callGeminiForQA(spec, question) {
   const apiKey = process.env.GOOGLE_API_KEY;
-  const candidates = [normalizeModelId(process.env.MODEL_ID || "gemini-1.5-pro")];
+  const candidates = ["gemini-2.5-pro"];
   const prompt = `You are a helpful data visualization assistant. You will be given a Vega-Lite JSON spec and a user question. Answer the question briefly in Korean using ONLY the information derivable from the spec (data.values, encodings, titles, ranges). Do not output JSON, only a short natural language answer.\n\nSPEC:\n${JSON.stringify(spec)}\n\nQUESTION:\n${question}`;
   const body = { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 256 } };
   let lastErrText = "";
@@ -226,7 +229,17 @@ app.post("/api/edit", async (req, res) => {
       const end = s.lastIndexOf('}');
       if (start >= 0 && end > start) {
         const slice = s.slice(start, end + 1);
-        updated = JSON.parse(slice);
+        try {
+          updated = JSON.parse(slice);
+        } catch {
+          // Try to fix common JSON issues
+          let fixed = slice
+            .replace(/,\s*}/g, '}')  // trailing commas
+            .replace(/,\s*]/g, ']')   // trailing commas in arrays
+            .replace(/(\w+):/g, '"$1":')  // unquoted keys
+            .replace(/'/g, '"');      // single quotes to double quotes
+          updated = JSON.parse(fixed);
+        }
       } else {
         throw new Error('model returned non-JSON');
       }
@@ -237,6 +250,75 @@ app.post("/api/edit", async (req, res) => {
     const snippet = (req && req.body && typeof req.body.instruction === 'string') ? req.body.instruction.slice(0, 140) : '';
     writeLog("edit-error", { message: e?.message, snippet });
     res.status(500).json({ error: e?.message || "edit failed", hint: '모델 응답이 JSON이 아닙니다. 지시어를 간단히 써보세요.' });
+  }
+});
+
+// QA endpoint: answer questions about current spec without returning a new spec
+app.post("/api/generate", async (req, res) => {
+  try {
+    const { instruction } = req.body || {};
+    if (!instruction) return res.status(400).json({ error: "instruction required" });
+    
+    if (!process.env.GOOGLE_API_KEY) {
+      return res.status(500).json({ error: "missing GOOGLE_API_KEY", hint: "set in .env or process env" });
+    }
+    
+    const prompt = `You are a senior data-vis engineer. Create a Vega-Lite v5 JSON chart based on the user's instruction.
+
+STRICT OUTPUT: valid JSON ONLY (one object). NO code fences, NO prose.
+
+GOALS
+- Create a chart that matches the user's request
+- Generate reasonable sample data as an array of objects in data.values
+- Use appropriate chart type, colors, and styling
+
+REQUIRED FIELDS
+- $schema: "https://vega.github.io/schema/vega-lite/v5.json"
+- description, title, width (520), height (320)
+- mark: correct type with appropriate options
+- encoding: include x/y (or theta/radius for pie/donut), color when needed
+- data: { values: [...] } with sample data
+
+CHART TYPES
+- Bar chart: mark:'bar', x: nominal categories, y: quantitative
+- Line chart: mark:'line', x: quantitative/temporal, y: quantitative
+- Pie chart: mark:'arc', theta: quantitative, color: nominal
+- Scatter plot: mark:'point', x: quantitative, y: quantitative
+- Area chart: mark:'area', x: quantitative, y: quantitative
+- Heatmap: mark:'rect', x: ordinal, y: ordinal, color: quantitative
+
+SAMPLE DATA
+Generate 5-10 realistic data points that make sense for the chart type.
+
+${instruction}`;
+
+    writeLog("generate-input", { instruction, prompt });
+    const out = await callGeminiForEdit({}, prompt);
+    let spec;
+    try {
+      spec = JSON.parse(out);
+    } catch (e) {
+      console.log("JSON parse error, trying to extract JSON from response:", e.message);
+      console.log("Raw response:", out);
+      // Try to extract JSON from the response
+      const jsonMatch = out.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          spec = JSON.parse(jsonMatch[0]);
+        } catch (e2) {
+          console.log("Failed to parse extracted JSON:", e2.message);
+          throw new Error(`Invalid JSON response: ${e.message}`);
+        }
+      } else {
+        throw new Error(`No JSON found in response: ${e.message}`);
+      }
+    }
+    writeLog("generate-output", { spec });
+    res.json({ spec });
+  } catch (e) {
+    console.error("/api/generate error", e);
+    writeLog("generate-error", { message: e?.message, stack: e?.stack });
+    res.status(500).json({ error: e?.message || "generate failed", stack: e?.stack });
   }
 });
 

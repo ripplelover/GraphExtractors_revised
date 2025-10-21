@@ -5,7 +5,14 @@ function withZoomPan(spec: any): any {
   try {
     const s = JSON.parse(JSON.stringify(spec));
     s.selection = s.selection || {};
-    s.selection.grid = { type: "interval", bind: "scales" } as any;
+    // Enhanced zoom and pan with better controls
+    s.selection.grid = { 
+      type: "interval", 
+      bind: "scales",
+      on: "[mousedown[!event.ctrlKey], window:mouseup] > window:mousemove!",
+      translate: "[mousedown[!event.ctrlKey], window:mouseup] > window:mousemove!",
+      zoom: "wheel![!event.ctrlKey]"
+    } as any;
     return s;
   } catch { return spec; }
 }
@@ -16,38 +23,47 @@ export default function ChartView({ spec, aspect, palette }: { spec: any | null,
     if (!ref.current || !spec) return;
     const clone: any = JSON.parse(JSON.stringify(spec));
     
-    // Calculate available width and height
-    const containerWidth = ref.current.clientWidth;
-    const containerHeight = ref.current.clientHeight;
-    const maxWidth = Math.min(containerWidth - 40, 800); // Leave some padding
-    const maxHeight = Math.min(containerHeight - 40, 600); // Leave some padding
+           // Calculate available width and height with better constraints
+           const containerWidth = ref.current.clientWidth;
+           const containerHeight = ref.current.clientHeight;
+           
+           // More conservative sizing to prevent clipping
+           const maxWidth = Math.min(containerWidth - 60, 1000); // Reduced from 1200, more padding
+           const maxHeight = Math.min(containerHeight - 60, 700); // Reduced from 800, more padding
+           
+           // Set responsive sizing with better constraints
+           const originalWidth = clone.width || 400;
+           const originalHeight = clone.height || 300;
+           
+           // Calculate aspect ratio
+           const aspectRatio = originalWidth / originalHeight;
+           
+           // Determine final dimensions - prioritize showing the full chart
+           let finalWidth = originalWidth;
+           let finalHeight = originalHeight;
+           
+           // Scale down proportionally if too large - more aggressive scaling
+           if (originalWidth > maxWidth || originalHeight > maxHeight) {
+             const widthScale = maxWidth / originalWidth;
+             const heightScale = maxHeight / originalHeight;
+             const scale = Math.min(widthScale, heightScale) * 0.9; // Additional 10% reduction
+             
+             finalWidth = originalWidth * scale;
+             finalHeight = originalHeight * scale;
+           }
+           
+           // Ensure minimum readable size but not too large
+           clone.width = Math.max(250, Math.min(800, finalWidth)); // Reduced max width
+           clone.height = Math.max(180, Math.min(600, finalHeight)); // Reduced max height
     
-    // Set responsive sizing with better constraints
-    const originalWidth = clone.width || 400;
-    const originalHeight = clone.height || 300;
-    
-    // Calculate aspect ratio
-    const aspectRatio = originalWidth / originalHeight;
-    
-    // Determine final dimensions
-    let finalWidth = originalWidth;
-    let finalHeight = originalHeight;
-    
-    if (originalWidth > maxWidth) {
-      finalWidth = maxWidth;
-      finalHeight = maxWidth / aspectRatio;
-    }
-    
-    if (finalHeight > maxHeight) {
-      finalHeight = maxHeight;
-      finalWidth = maxHeight * aspectRatio;
-    }
-    
-    clone.width = Math.max(200, finalWidth); // Minimum width
-    clone.height = Math.max(150, finalHeight); // Minimum height
+    // Enable better autosize behavior
     clone.autosize = { type: "fit", contains: "padding" };
     clone.config = clone.config || {};
     clone.config.view = { stroke: null };
+    
+           // Add more padding to prevent clipping
+           clone.padding = { left: 40, right: 40, top: 40, bottom: 40 };
+    
     if (palette && palette.length) {
       clone.config.range = clone.config.range || {};
       clone.config.range.category = palette;
@@ -87,7 +103,14 @@ export default function ChartView({ spec, aspect, palette }: { spec: any | null,
       console.error('ChartView embed error:', error);
     });
   }, [spec]);
-  const style: React.CSSProperties = { minHeight: 420 };
+  const style: React.CSSProperties = { 
+    minHeight: 500, 
+    width: '100%', 
+    height: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  };
   if (aspect && aspect > 0) (style as any).aspectRatio = String(aspect);
   return <div className="w-full" style={style} ref={ref} />;
 }
