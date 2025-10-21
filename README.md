@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Image2Graph
 
 이미지에서 데이터까지, 차트를 더 빠르게 만들어보세요.
@@ -73,3 +74,6 @@ MODEL_ID=gemini-1.5-pro
 ## 📄 라이선스
 
 이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+=======
+# GraphExtractors_revised
+>>>>>>> aaffb55b21718758477000057ba5ecf880a66d40
