@@ -58,6 +58,7 @@ export default function App() {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [selectedSet, setSelectedSet] = useState<Set<number>>(new Set());
+  const [textMode, setTextMode] = useState<boolean>(false); // 텍스트 추가 모드
   type DragState = { idx:number; offsetX:number; offsetY:number; mode:'move'|'resize'; handle?:'nw'|'ne'|'se'|'sw' };
   const [drag, setDrag] = useState<DragState | null>(null);
   const [catField, setCatField] = useState<string | null>(null);
@@ -241,9 +242,13 @@ export default function App() {
     } catch { return s; }
   }
 
-  const onUpload = async (f: File, dataUrl?: string) => {
+  const onUpload = async (f: File, dataUrl?: string, instruction?: string) => {
     const form = new FormData();
     form.append("image", f);
+    // 명령어가 있으면 함께 전송
+    if (instruction && instruction.trim()) {
+      form.append("instruction", instruction.trim());
+    }
     setBusy(true);
     try {
       if (dataUrl) {
@@ -261,7 +266,7 @@ export default function App() {
         (window as any).routerNavigate?.(`/project/${id}`);
       } catch {}
       // 사용자 피드백
-      addMsg({ role: "assistant", text: "이미지에서 그래프를 변환했습니다." });
+      addMsg({ role: "assistant", text: instruction ? `"${instruction}" 명령어로 이미지를 변환했습니다.` : "이미지에서 그래프를 변환했습니다." });
       setToast('변환 완료'); setTimeout(()=> setToast(''), 2000);
       // 즉시 저장 (스펙/이미지 모두 포함)
       saveProject();
@@ -303,11 +308,69 @@ export default function App() {
     }
   }
 
+  const createRandomChart = () => {
+    const chartTypes = [
+      '막대 그래프',
+      '파이 차트', 
+      '라인 차트',
+      '산점도',
+      '도넛 차트',
+      '면적 차트',
+      '히트맵'
+    ];
+    const randomType = chartTypes[Math.floor(Math.random() * chartTypes.length)];
+    setInput(`${randomType}를 만들어줘`);
+  };
+
+  const generateRandomChart = async () => {
+    const chartTypes = [
+      '막대 그래프',
+      '파이 차트', 
+      '라인 차트',
+      '산점도',
+      '도넛 차트',
+      '면적 차트',
+      '히트맵'
+    ];
+    const randomType = chartTypes[Math.floor(Math.random() * chartTypes.length)];
+    await generateChart(`${randomType}를 만들어줘`);
+  };
+
   const sendInstruction = async () => {
-    if (!input.trim() || !spec) return;
+    if (!input.trim()) return;
     const text = input.trim();
     setInput("");
-    await doInstruction(text);
+    
+    if (!spec) {
+      // 새 프로젝트 생성 - 텍스트로 차트 생성
+      await generateChart(text);
+    } else {
+      // 기존 차트 수정
+      await doInstruction(text);
+    }
+  };
+
+  const generateChart = async (instruction: string) => {
+    setBusy(true);
+    try {
+      const { data } = await axios.post(`${API}/api/generate`, { instruction });
+      setSpec(fixSpec(ensureCategoricalColors(data.spec)));
+      // 저장 후 해당 프로젝트 상세로 이동
+      try {
+        const id = saveProject();
+        setHomeTab('create');
+        (window as any).routerNavigate?.(`/project/${id}`);
+      } catch {}
+      // 사용자 피드백
+      addMsg({ role: "assistant", text: `"${instruction}" 요청에 따라 차트를 생성했습니다.` });
+      setToast('차트 생성 완료'); setTimeout(()=> setToast(''), 2000);
+      // 즉시 저장
+      saveProject();
+    } catch (e: any) {
+      addMsg({ role: "assistant", text: `오류: ${e?.message || e}` });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const exportJSON = () => {
@@ -384,17 +447,23 @@ export default function App() {
     return () => window.removeEventListener('chartRendered', handleChartRendered as EventListener);
   }, [currentProjectId]);
 
-  // Observe VL canvas size → overlay size
+  // Observe VL canvas size → overlay size with better dynamic sizing
   useEffect(() => {
     const root = document.querySelector('.editor-canvas .chart-with-overlay') as HTMLElement | null;
     if (!root) return;
     const canvas = root.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
-    const set = () => setOverlaySize({ w: canvas.clientWidth || 800, h: canvas.clientHeight || 450 });
+    const set = () => {
+      // Use container size instead of canvas size for better responsiveness
+      const containerRect = root.getBoundingClientRect();
+      const availableWidth = Math.max(600, containerRect.width - 40); // Minimum 600px width
+      const availableHeight = Math.max(400, containerRect.height - 40); // Minimum 400px height
+      setOverlaySize({ w: availableWidth, h: availableHeight });
+    };
     set();
     const ResizeObserver = (window as any).ResizeObserver;
     const ro = ResizeObserver ? new ResizeObserver(() => set()) : null;
-    ro?.observe(canvas);
+    ro?.observe(root); // Observe container instead of canvas
     return () => ro?.disconnect();
   }, [spec]);
 
@@ -509,6 +578,45 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-gray-900" style={{ display: "flex", flexDirection: "column" }}>
+      {/* 전체 화면 로딩 오버레이 */}
+      {busy && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          color: 'white',
+          fontSize: '18px',
+          fontWeight: '600'
+        }}>
+          <div style={{
+            background: 'white',
+            color: '#333',
+            padding: '24px 32px',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{
+              width: '24px',
+              height: '24px',
+              border: '3px solid #e5e7eb',
+              borderTop: '3px solid #3b82f6',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }}></div>
+            AI가 처리 중입니다...
+          </div>
+        </div>
+      )}
       <header className="h-14 px-3 flex items-center justify-between appbar" style={{ flex: "0 0 auto" }}>
         <div className="brand">Image2Graph</div>
         <div className="flex gap-2">
@@ -580,7 +688,7 @@ export default function App() {
         <main style={{ padding: 16 }}>
           {homeTab === 'create' ? (
             !spec ? (
-              <CreatePage onUpload={onUpload} input={input} setInput={setInput} onSend={sendInstruction} />
+              <CreatePage onUpload={onUpload} input={input} setInput={setInput} onSend={sendInstruction} onCreateRandomChart={createRandomChart} onGenerateRandomChart={generateRandomChart} busy={busy} />
             ) : (
               <div className="editor-layout">
                 <aside className="editor-side">
@@ -588,6 +696,206 @@ export default function App() {
                     <button className="btn" onClick={openDataEditor}>데이터 편집</button>
                     <button className="btn" onClick={()=> setShowCanvas(true)}>캔버스</button>
                   </div>
+                  
+               {/* Canva 스타일 고정 텍스트 편집 툴바 */}
+               {selectedIdx !== null && overlays[selectedIdx] && overlays[selectedIdx].type === 'text' && (
+                 <div style={{ 
+                   background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)', 
+                   border: '1px solid rgba(102, 126, 234, 0.2)', 
+                   borderRadius: '16px', 
+                   padding: '20px', 
+                   marginBottom: '16px',
+                   display: 'flex',
+                   flexDirection: 'column',
+                   gap: '12px',
+                   boxShadow: '0 4px 16px rgba(102, 126, 234, 0.1)',
+                   backdropFilter: 'blur(10px)',
+                   width: '100%',
+                   overflow: 'visible'
+                 }}>
+                   <div style={{ 
+                     fontWeight: '700', 
+                     fontSize: '16px', 
+                     color: '#4a5568',
+                     textShadow: 'none'
+                   }}>✏️ 텍스트 편집</div>
+                   
+                   <div style={{
+                     background: 'rgba(255,255,255,0.8)',
+                     borderRadius: '12px',
+                     padding: '12px',
+                     display: 'flex',
+                     gap: '8px',
+                     alignItems: 'center',
+                     border: '1px solid rgba(102, 126, 234, 0.1)',
+                     width: '100%'
+                   }}>
+                     <input
+                       value={(overlays[selectedIdx] as any).text || ''}
+                       onChange={(e)=>{
+                         const val = e.target.value;
+                         setOverlays(prev => prev.map((o, i) => i === selectedIdx ? { ...o, text: val } : o));
+                       }}
+                       placeholder="텍스트 입력"
+                       style={{ 
+                         flex: '1',
+                         border: 'none', 
+                         background: 'transparent',
+                         outline: 'none',
+                         fontSize: '14px',
+                         fontWeight: '500',
+                         color: '#2d3748'
+                       }}
+                     />
+                   </div>
+                   
+                   <div style={{
+                     background: 'rgba(255,255,255,0.8)',
+                     borderRadius: '12px',
+                     padding: '12px',
+                     display: 'flex',
+                     gap: '12px',
+                     alignItems: 'center',
+                     border: '1px solid rgba(102, 126, 234, 0.1)',
+                     width: '100%',
+                     flexWrap: 'wrap'
+                   }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                       <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500' }}>색상:</span>
+                       <input
+                         type="color"
+                         value={(overlays[selectedIdx] as any).color || '#111827'}
+                         onChange={(e)=>{
+                           const val = e.target.value;
+                           setOverlays(prev => prev.map((o, i) => i === selectedIdx ? { ...o, color: val } : o));
+                         }}
+                         title="색상"
+                         style={{ 
+                           width: '32px', 
+                           height: '32px', 
+                           border: 'none', 
+                           borderRadius: '6px',
+                           cursor: 'pointer',
+                           boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                         }}
+                       />
+                     </div>
+                     
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                       <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500' }}>크기:</span>
+                       <input
+                         type="number"
+                         min={8}
+                         max={96}
+                         value={(overlays[selectedIdx] as any).size || 18}
+                         onChange={(e)=>{
+                           const val = Number(e.target.value) || 18;
+                           setOverlays(prev => prev.map((o, i) => i === selectedIdx ? { ...o, size: val } : o));
+                         }}
+                         title="크기"
+                         style={{ 
+                           width: '60px', 
+                           border: '1px solid rgba(102, 126, 234, 0.2)', 
+                           background: 'white',
+                           borderRadius: '6px', 
+                           padding: '6px',
+                           fontSize: '14px',
+                           fontWeight: '500',
+                           textAlign: 'center',
+                           color: '#2d3748'
+                         }}
+                       />
+                     </div>
+                     
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1' }}>
+                       <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500' }}>글꼴:</span>
+                       <select
+                         value={(overlays[selectedIdx] as any).fontFamily || 'system-ui'}
+                         onChange={(e)=>{
+                           const val = e.target.value;
+                           setOverlays(prev => prev.map((o, i) => i === selectedIdx ? { ...o, fontFamily: val } : o));
+                         }}
+                         title="글꼴"
+                         style={{ 
+                           border: '1px solid rgba(102, 126, 234, 0.2)', 
+                           background: 'white',
+                           borderRadius: '6px', 
+                           padding: '6px',
+                           fontSize: '14px',
+                           fontWeight: '500',
+                           cursor: 'pointer',
+                           outline: 'none',
+                           color: '#2d3748',
+                           flex: '1',
+                           minWidth: '120px'
+                         }}
+                       >
+                         <option value="system-ui">System</option>
+                         <option value="Pretendard">Pretendard</option>
+                         <option value="Arial">Arial</option>
+                         <option value="Roboto">Roboto</option>
+                         <option value="Noto Sans KR">Noto Sans KR</option>
+                         <option value="Georgia">Georgia</option>
+                       </select>
+                     </div>
+                   </div>
+                   
+                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                     <button
+                       className="btn"
+                       onClick={()=> setSelectedIdx(null)}
+                       style={{ 
+                         background: 'rgba(34, 197, 94, 0.1)', 
+                         border: '1px solid rgba(34, 197, 94, 0.3)',
+                         color: '#059669',
+                         borderRadius: '12px',
+                         padding: '10px 16px',
+                         fontWeight: '600',
+                         fontSize: '14px',
+                         transition: 'all 0.2s ease'
+                       }}
+                       onMouseEnter={(e) => {
+                         e.currentTarget.style.background = 'rgba(34, 197, 94, 0.2)';
+                         e.currentTarget.style.transform = 'translateY(-1px)';
+                       }}
+                       onMouseLeave={(e) => {
+                         e.currentTarget.style.background = 'rgba(34, 197, 94, 0.1)';
+                         e.currentTarget.style.transform = 'translateY(0)';
+                       }}
+                     >
+                       ✅ 완료
+                     </button>
+                     <button
+                       className="btn"
+                       onClick={()=>{
+                         const idx = selectedIdx;
+                         setSelectedIdx(null);
+                         setOverlays(prev => prev.filter((_, i) => i !== idx));
+                       }}
+                       style={{ 
+                         background: 'rgba(239, 68, 68, 0.1)', 
+                         border: '1px solid rgba(239, 68, 68, 0.3)',
+                         color: '#dc2626',
+                         borderRadius: '12px',
+                         padding: '10px 16px',
+                         fontWeight: '600',
+                         fontSize: '14px',
+                         transition: 'all 0.2s ease'
+                       }}
+                       onMouseEnter={(e) => {
+                         e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                         e.currentTarget.style.transform = 'translateY(-1px)';
+                       }}
+                       onMouseLeave={(e) => {
+                         e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                         e.currentTarget.style.transform = 'translateY(0)';
+                       }}
+                     >
+                       🗑️ 삭제
+                     </button>
+                   </div>
+                 </div>
+               )}
                   <div style={{ display:'grid', gap:8 }}>
                     <div className="muted">팔레트 빠른 설정</div>
                     <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
@@ -595,8 +903,11 @@ export default function App() {
                         const range = (spec?.encoding?.color?.scale?.range || []) as string[];
                         return range.map((c:string, i:number)=> (
                           <input key={i} type="color" value={c} onChange={e=>{
+                            console.log('Color changed:', e.target.value, 'at index:', i);
                             const next = JSON.parse(JSON.stringify(spec));
-                            next.encoding = next.encoding || {}; next.encoding.color = next.encoding.color || {}; next.encoding.color.scale = next.encoding.color.scale || {}; const arr = [...(next.encoding.color.scale.range||[])]; arr[i]=e.target.value; next.encoding.color.scale.range = arr; setSpec(next); saveProject();
+                            next.encoding = next.encoding || {}; next.encoding.color = next.encoding.color || {}; next.encoding.color.scale = next.encoding.color.scale || {}; const arr = [...(next.encoding.color.scale.range||[])]; arr[i]=e.target.value; next.encoding.color.scale.range = arr; 
+                            console.log('New color range:', arr);
+                            setSpec(next); saveProject();
                           }} />
                         ));
                       })()}
@@ -632,28 +943,60 @@ export default function App() {
                     )}
                   </div>
                 </aside>
-                <section className="editor-canvas" style={{ minHeight: 0, overflow: "hidden", maxWidth: "100%", maxHeight: "100%" }}>
-                  <div className="vl-container chart-with-overlay" style={{ position:'relative', width: overlaySize.w, height: overlaySize.h }} onDoubleClick={(e)=>{
+                <section
+                  className="editor-canvas"
+                  style={{ minHeight: 0, overflow: "auto", maxWidth: "100%", maxHeight: "100%", cursor: textMode ? 'crosshair' : 'default' }}
+                  onDoubleClick={(e)=>{
+                    // 텍스트 모드일 때만 새 텍스트 추가 - 전체 캔버스에서 가능
+                    if (!textMode) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const x = Math.round(e.clientX - rect.left);
+                    const y = Math.round(e.clientY - rect.top);
+                    console.log('Adding text at:', x, y, 'textMode:', textMode);
+                    addTextAt(x, y);
+                    setTextMode(false); // 텍스트 추가 후 모드 해제
+                  }}
+                  onMouseDown={(e)=>{
+                    // 빈 공간 클릭 시 선택 해제만 (텍스트 모드는 유지)
+                    const target = e.target as HTMLElement;
+                    if (target.closest('.overlay-toolbar') || target.tagName.toLowerCase() === 'text') return;
+                    setSelectedIdx(null);
+                  }}
+                >
+                  <div className="vl-container chart-with-overlay" style={{ position:'relative', width: '100%', height: '100%', minWidth: '800px', minHeight: '600px' }} onDoubleClick={(e)=>{
+                    if (!textMode) return;
+                    e.preventDefault();
+                    e.stopPropagation();
                     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                    addTextAt(Math.round(e.clientX - rect.left), Math.round(e.clientY - rect.top));
+                    const x = Math.round(e.clientX - rect.left);
+                    const y = Math.round(e.clientY - rect.top);
+                    console.log('Chart container double click:', x, y);
+                    addTextAt(x, y);
+                    setTextMode(false);
                   }}>
                     {/* chart box on grid */}
-                    <div style={{ position:'absolute', left: 40, top: 30, right: 40, bottom: 30, pointerEvents:'none' }} />
-                    <div style={{ position:'absolute', left: 40, top: 30, width: overlaySize.w-80, height: overlaySize.h-60 }}>
-                      <ChartView spec={spec} aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined} palette={preferredPalette} />
+                    <div style={{ position:'absolute', left: 40, top: 40, right: 40, bottom: 40, pointerEvents:'none' }} />
+                    <div style={{ position:'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                      <div style={{ pointerEvents: textMode ? 'none' : 'auto' }}>
+                        <ChartView key={`chart-${JSON.stringify(spec?.encoding?.color?.scale?.range)}`} spec={spec} aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined} palette={preferredPalette} />
+                      </div>
                     </div>
-                    {/* Overlay for text directly above chart */}
-                    <svg className="overlay-svg" style={{ width: overlaySize.w, height: overlaySize.h, position:'absolute', left:0, top:0 }} viewBox={`0 0 ${overlaySize.w} ${overlaySize.h}`} onMouseMove={(e)=>{
+                    {/* Overlay for text covering entire canvas */}
+                    <svg className="overlay-svg" style={{ width: '100%', height: '100%', position:'absolute', left:0, top:0 }} viewBox="0 0 1000 1000" onMouseMove={(e)=>{
                       if (!drag) return;
                       const svgRect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-                      const maxX = overlaySize.w; const maxY = overlaySize.h;
+                      const maxX = 1000; const maxY = 1000;
                       const x = Math.max(0, Math.min(maxX, e.clientX - svgRect.left - drag.offsetX));
                       const y = Math.max(0, Math.min(maxY, e.clientY - svgRect.top - drag.offsetY));
                       setOverlays(prev=> prev.map((o,idx)=> idx===drag.idx ? { ...o, x, y } : o));
                     }} onMouseUp={()=> setDrag(null)} onMouseLeave={()=> setDrag(null)}>
                       {overlays.filter(o=>o.type==='text').map((o,i)=> (
-                        <text key={i} x={o.x||100} y={o.y||100} fill={o.color||'#111827'} fontSize={o.size||18} style={{ cursor:'move', userSelect:'none' }}
-                      onMouseDown={(e)=>{ setSelectedIdx(i); const svgRect=(e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); const curX=(o.x||0); const curY=(o.y||0); setDrag({ idx:i, offsetX: (e.clientX - svgRect.left) - curX, offsetY: (e.clientY - svgRect.top) - curY, mode:'move' }); }}
+                        <text key={i} x={o.x||100} y={o.y||100} fill={o.color||'#111827'} fontSize={o.size||18}
+                          style={{ cursor:'move', userSelect:'none', fontFamily: (o as any).fontFamily || 'system-ui' }}
+                          onMouseDown={(e)=>{ setSelectedIdx(i); const svgRect=(e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); const curX=(o.x||0); const curY=(o.y||0); setDrag({ idx:i, offsetX: (e.clientX - svgRect.left) - curX, offsetY: (e.clientY - svgRect.top) - curY, mode:'move' }); }}
+                          onDoubleClick={(e)=>{ e.stopPropagation(); setSelectedIdx(i); }}
                         >{o.text||'텍스트'}</text>
                       ))}
                       {overlays.filter(o=>o.type==='rect').map((o,i)=> (
@@ -661,6 +1004,23 @@ export default function App() {
                           onMouseDown={(e)=>{ setSelectedIdx(i); const svgRect=(e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); const curX=(o.x||0); const curY=(o.y||0); setDrag({ idx:i, offsetX: (e.clientX - svgRect.left) - curX, offsetY: (e.clientY - svgRect.top) - curY, mode:'move' }); }} />
                       ))}
                     </svg>
+                  {textMode && (
+                    <div style={{ 
+                      position: 'absolute', 
+                      top: '20px', 
+                      left: '50%', 
+                      transform: 'translateX(-50%)', 
+                      background: 'rgba(0,0,0,0.8)', 
+                      color: 'white', 
+                      padding: '12px 20px', 
+                      borderRadius: '8px', 
+                      fontSize: '14px',
+                      pointerEvents: 'none',
+                      zIndex: 10
+                    }}>
+                      캔버스 어디든 더블클릭하여 텍스트 추가 (차트 위에서도 가능)
+                    </div>
+                  )}
                   </div>
                 </section>
                 <div style={{ gridColumn: '1 / span 2' }}>
@@ -684,6 +1044,16 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                    <button 
+                      className={`btn ${textMode ? 'active' : ''}`} 
+                      onClick={()=> {
+                        console.log('Text mode button clicked, current:', textMode, 'setting to:', !textMode);
+                        setTextMode(!textMode);
+                      }}
+                      style={{ background: textMode ? '#e0f2fe' : 'white', borderColor: textMode ? '#0ea5e9' : '#e5e7eb' }}
+                    >
+                      📝 텍스트 {textMode ? '(활성)' : ''}
+                    </button>
                     <div style={{ display:'flex', alignItems:'center', gap:8, flex:1 }}>
                       <div className="mode-pill" title={mode==='ask' ? '질문 모드' : '차트 수정 모드'} onClick={()=> setMode(mode==='ask' ? 'edit' : 'ask')}>
                         <span className="icon">{mode==='ask' ? '❓' : '🛠️'}</span>
@@ -691,7 +1061,7 @@ export default function App() {
                       </div>
                       <input className="border rounded px-3 py-2" style={{ flex:1 }} placeholder="명령 입력 (예: 색상을 초록으로, 라인 차트로)" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=> e.key==='Enter' && sendInstruction()} />
                     </div>
-                    <button className="btn" onClick={sendInstruction} disabled={!spec || busy}>{busy? '...' : 'Send'}</button>
+                    <button className="btn" onClick={sendInstruction} disabled={!spec || busy}>{busy? '처리 중...' : 'Send'}</button>
                     {/* preset actions */}
                     <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                       <button className="btn" onClick={()=> doInstruction('막대 색상을 원본 이미지와 동일한 팔레트로 맞춰줘')}>색상 매칭</button>
@@ -806,7 +1176,7 @@ export default function App() {
                       </div>
                   <input className="border rounded px-3 py-2" style={{ flex:1 }} placeholder="명령 입력 (예: 색상을 초록으로, 라인 차트로)" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=> e.key==='Enter' && sendInstruction()} />
                     </div>
-                  <button className="btn" onClick={sendInstruction} disabled={!spec || busy}>{busy? '...' : 'Send'}</button>
+                  <button className="btn" onClick={sendInstruction} disabled={!spec || busy}>{busy? '처리 중...' : 'Send'}</button>
                     <div style={{ display:'inline-flex', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden' }}>
                       <button className="btn" style={{ border:'none', borderRight:'1px solid var(--border)', background: mode==='edit'? '#eef2ff':'#fff' }} onClick={()=> setMode('edit')}>차트 수정</button>
                       <button className="btn" style={{ border:'none', background: mode==='ask'? '#eef2ff':'#fff' }} onClick={()=> setMode('ask')}>질문</button>
