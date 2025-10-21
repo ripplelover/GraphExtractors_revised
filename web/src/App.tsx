@@ -7,6 +7,7 @@ import { useApp } from "./store";
 import { setPrimaryColor, convertBarToPie, convertPieToBar, ensureCategoricalColors } from "./utils/specTransforms";
 import HomeDashboard from "./components/HomeDashboard";
 import CreatePage from "./components/CreatePage";
+import Logo from "./components/Logo";
 // Router dependency removed for now (using simple hash navigation)
 
 // API base is resolved at runtime: VITE_API_BASE > healthy(4000) > healthy(4001)
@@ -47,6 +48,7 @@ export default function App() {
   const [mode, setMode] = useState<'edit'|'ask'>('edit');
   const [showPlusMenu, setShowPlusMenu] = useState<boolean>(false);
   const [showDataEditor, setShowDataEditor] = useState<boolean>(false);
+  const [showImageModal, setShowImageModal] = useState<boolean>(false);
   const [tableCols, setTableCols] = useState<string[]>([]);
   const [tableRows, setTableRows] = useState<any[]>([]);
   const [palette, setPalette] = useState<string[]>([]);
@@ -617,8 +619,71 @@ export default function App() {
           </div>
         </div>
       )}
+      
+      {/* 원본 이미지 확대 모달 */}
+      {showImageModal && originalImageSrc && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          background: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }} onClick={() => setShowImageModal(false)}>
+          <div style={{
+            position: 'relative',
+            maxWidth: '90%',
+            maxHeight: '90%',
+            background: 'white',
+            borderRadius: '12px',
+            padding: '20px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
+          }} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowImageModal(false)}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                background: 'rgba(0,0,0,0.5)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '18px',
+                fontWeight: 'bold'
+              }}
+            >
+              ×
+            </button>
+            <img
+              src={originalImageSrc}
+              alt="원본 이미지 확대"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                borderRadius: '8px',
+                display: 'block'
+              }}
+            />
+          </div>
+        </div>
+      )}
       <header className="h-14 px-3 flex items-center justify-between appbar" style={{ flex: "0 0 auto" }}>
-        <div className="brand">Image2Graph</div>
+        <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingLeft: '8px' }}>
+          <Logo size={28} />
+          <span style={{ fontSize: '18px', fontWeight: '600' }}>Image2Graph</span>
+        </div>
         <div className="flex gap-2">
           {/* Back to home when a project is open */}
           {/* top-right nav buttons removed; navigation via left sidebar only */}
@@ -938,7 +1003,12 @@ export default function App() {
                     {originalImageSrc && (
                       <div style={{ marginTop:12 }}>
                         <div className="muted" style={{ marginBottom:6 }}>원본 이미지</div>
-                        <img src={originalImageSrc} alt="original" style={{ maxWidth:'100%', border:'1px solid var(--border)', borderRadius:8 }} />
+                        <img 
+                          src={originalImageSrc} 
+                          alt="original" 
+                          style={{ maxWidth:'100%', border:'1px solid var(--border)', borderRadius:8, cursor:'pointer' }} 
+                          onClick={() => setShowImageModal(true)}
+                        />
                       </div>
                     )}
                   </div>

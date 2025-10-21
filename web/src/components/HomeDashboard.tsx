@@ -1,4 +1,5 @@
 import React from "react";
+import LargeLogo from "./LargeLogo";
 
 type HomeDashboardProps = {
   mode: "home" | "projects" | "create" | "templates";
@@ -30,6 +31,9 @@ export default function HomeDashboard({ mode, projects, onOpen, onDelete, onCrea
   return (
     <div>
       <div className="dash-hero">
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '24px' }}>
+          <LargeLogo size={100} />
+        </div>
         <div className="dash-hero-title">
           {mode === 'home' && '오늘은 무엇을 만들어 볼까요?'}
           {mode === 'projects' && '모든 프로젝트'}
@@ -77,17 +81,17 @@ export default function HomeDashboard({ mode, projects, onOpen, onDelete, onCrea
           <div className="dash-section-title">빠른 시작</div>
           <div className="feature-grid">
             <div className="step-card" onClick={()=> (window as any).routerNavigate?.('/create')} style={{ cursor:'pointer' }}>
-              <div className="step-emoji" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '50%', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '28px' }}>📊</div>
+              <div className="step-emoji" style={{ background: '#f8fafc', border: '2px solid #e2e8f0', borderRadius: '12px', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '28px', color: '#475569' }}>📊</div>
               <div className="step-title">새 프로젝트</div>
               <div className="step-desc">이미지 업로드 또는 템플릿 선택</div>
             </div>
             <div className="step-card" onClick={()=> (window as any).routerNavigate?.('/templates')} style={{ cursor:'pointer' }}>
-              <div className="step-emoji" style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', borderRadius: '50%', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '28px' }}>🎨</div>
+              <div className="step-emoji" style={{ background: '#f8fafc', border: '2px solid #e2e8f0', borderRadius: '12px', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '28px', color: '#475569' }}>🎨</div>
               <div className="step-title">템플릿</div>
               <div className="step-desc">몇 번의 클릭으로 시작</div>
             </div>
             <div className="step-card" onClick={()=> (window as any).routerNavigate?.('/projects')} style={{ cursor:'pointer' }}>
-              <div className="step-emoji" style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', borderRadius: '50%', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '28px' }}>📁</div>
+              <div className="step-emoji" style={{ background: '#f8fafc', border: '2px solid #e2e8f0', borderRadius: '12px', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '28px', color: '#475569' }}>📁</div>
               <div className="step-title">프로젝트</div>
               <div className="step-desc">최근 작업으로 이동</div>
             </div>
