@@ -37,7 +37,54 @@ function writeLog(kind, obj) {
 }
 
 function buildPrompt(userInstruction) {
-  const core = `You are a senior data-vis engineer. Convert the chart IMAGE to a faithful Vega-Lite v5 JSON.\n\nSTRICT OUTPUT: valid JSON ONLY (one object). NO code fences, NO prose.\n\nGOALS\n- Match the original visual as closely as possible (type, colors, background, legend order, labels, orientation, stacking, sorting).\n- Reconstruct the underlying data as an array of objects in data.values (reasonable integers/floats; use visible tick values/labels and bar lengths as hints).\n\nREQUIRED FIELDS\n- $schema, description, title, width (520), height (320).\n- mark: correct type with options (stack/orient/opacity/innerRadius/point/tooltip/line interpolation as needed).\n- encoding: include x/y (or theta/radius for pie/donut), color (nominal when categories exist).\n  * color.scale.domain MUST follow the category order seen in the image (labels/legend).\n  * color.scale.range MUST use the EXACT hex colors sampled from the image (do not invent).\n  * If there is a fixed single color in the image, set mark.color to that hex and omit color encoding.\n- axis/legend: titles from the image if present else null; axis labelAngle=0 for horizontal bars; add grid on primary axes.\n- background: set background to the page/chart background color if visible (hex).\n\nTYPE HINTS\n- Grouped bar: mark:'bar', stack:null, x: nominal categories, y: quantitative; color by series with legend at top; if bars are horizontal use { orient:'horizontal' } or swap encodings.\n- Stacked bar: y.stack='normalize' or 'zero' depending on % axis; preserve series order.\n- Line/Area: x temporal or quantitative; use interpolate:'monotone' for smooth lines; include color by series.\n- Scatter: quantitative x/y; map color/size/shape if visible.\n- Pie/Donut: use theta (sum) and color nominal; set innerRadius for donut.\n- Heatmap: mark 'rect' with color quantitative scale and legend.\n\nQUALITY\n- Return compact JSON parsable by JSON.parse.\n- Ensure domains, ranges, and sorting replicate what is seen.\n- Prefer nice ticks; y domain from 0 unless the image clearly truncates.\n- If uncertain between horizontal vs vertical bars, choose the orientation that matches label positions.\n\n${userInstruction ? `USER INSTRUCTION:\n${userInstruction}\n` : ''}`;
+  const core = `You are a senior data-vis engineer. Convert the chart IMAGE to a faithful Vega-Lite v5 JSON.
+
+STRICT OUTPUT: valid JSON ONLY (one object). NO code fences, NO prose.
+
+CRITICAL: MAXIMUM FIDELITY TO ORIGINAL
+- Replicate the EXACT visual appearance of the original chart
+- Use PRECISE colors, positions, sizes, and layouts from the image
+- Maintain EXACT text positioning, font sizes, and label orientations
+- Preserve the EXACT order of categories, series, and legend items as shown
+- Keep the SAME background color, borders, and visual styling
+
+GOALS
+- Match the original visual as closely as possible (type, colors, background, legend order, labels, orientation, stacking, sorting).
+- Reconstruct the underlying data as an array of objects in data.values (reasonable integers/floats; use visible tick values/labels and bar lengths as hints).
+
+REQUIRED FIELDS
+- $schema, description, title, width (520), height (320).
+- mark: correct type with options (stack/orient/opacity/innerRadius/point/tooltip/line interpolation as needed).
+- encoding: include x/y (or theta/radius for pie/donut), color (nominal when categories exist).
+  * color.scale.domain MUST follow the EXACT category order seen in the image (labels/legend) - DO NOT reorder
+  * color.scale.range MUST use the EXACT hex colors sampled from the image (do not invent or approximate)
+  * If there is a fixed single color in the image, set mark.color to that exact hex and omit color encoding
+- axis/legend: titles from the image if present else null; axis labelAngle=0 for horizontal bars; add grid on primary axes
+- background: set background to the EXACT page/chart background color if visible (hex)
+
+VISUAL FIDELITY REQUIREMENTS
+- Text positioning: Maintain EXACT label positions, orientations, and alignments
+- Color accuracy: Sample and use PRECISE hex values from the original image
+- Layout preservation: Keep the same spacing, margins, and proportions
+- Order consistency: Categories, series, and legend items in EXACT original order
+- Size relationships: Maintain proportional relationships between elements
+
+TYPE HINTS
+- Grouped bar: mark:'bar', stack:null, x: nominal categories, y: quantitative; color by series with legend at top; if bars are horizontal use { orient:'horizontal' } or swap encodings
+- Stacked bar: y.stack='normalize' or 'zero' depending on % axis; preserve series order EXACTLY as shown
+- Line/Area: x temporal or quantitative; use interpolate:'monotone' for smooth lines; include color by series
+- Scatter: quantitative x/y; map color/size/shape if visible
+- Pie/Donut: use theta (sum) and color nominal; set innerRadius for donut
+- Heatmap: mark 'rect' with color quantitative scale and legend
+
+QUALITY
+- Return compact JSON parsable by JSON.parse
+- Ensure domains, ranges, and sorting replicate what is seen EXACTLY
+- Prefer nice ticks; y domain from 0 unless the image clearly truncates
+- If uncertain between horizontal vs vertical bars, choose the orientation that matches label positions
+- PRIORITIZE visual accuracy over aesthetic improvements
+
+${userInstruction ? `USER INSTRUCTION:\n${userInstruction}\n` : ''}`;
   return core;
 }
 
@@ -52,7 +99,7 @@ async function callGeminiWithImage(b64Image, prompt, mime = "image/png") {
     contents: [
       { role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b64Image } }] }
     ],
-    generationConfig: { temperature: 0.05, maxOutputTokens: 2000 }
+    generationConfig: { temperature: 0.05, maxOutputTokens: 80000 }
   };
   let lastErrText = "";
   for (const raw of candidates) {
