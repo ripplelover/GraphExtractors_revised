@@ -75,5 +75,3 @@ MODEL_ID=gemini-2.5-flash
 
 이 프로젝트는 MIT 라이선스 하에 배포됩니다.
 =======
-# GraphExtractors_revised
->>>>>>> aaffb55b21718758477000057ba5ecf880a66d40
