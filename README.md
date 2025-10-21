@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Image2Graph
 
 이미지에서 데이터까지, 차트를 더 빠르게 만들어보세요.
@@ -43,8 +42,9 @@ npm run dev
 
 1. `server` 폴더에 `.env` 파일 생성:
 ```
+PORT=4000
 GOOGLE_API_KEY=your_google_api_key_here
-MODEL_ID=gemini-1.5-pro
+MODEL_ID=gemini-2.5-flash
 ```
 
 2. Google AI Studio에서 API 키 발급:
