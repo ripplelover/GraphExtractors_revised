@@ -67,7 +67,28 @@
   - `400 Bad Request`: `spec` 또는 `instruction`이 누락된 경우
   - `500 Internal Server Error`: 모델 응답이 유효한 JSON이 아니거나 서버 오류가 발생한 경우
 
-### 2.4. 차트 데이터 질의응답
+### 2.4. 텍스트 → Vega-Lite 변환
+
+- **엔드포인트**: `POST /api/generate`
+- **설명**: 자연어 지시사항을 바탕으로 Vega-Lite JSON 명세를 생성합니다.
+- **요청 형식**: `application/json`
+- **요청 본문**:
+  ```json
+  {
+    "instruction": "과일 판매량을 보여주는 파이 차트"
+  }
+  ```
+- **성공 응답 (200 OK)**:
+  ```json
+  {
+    "spec": { "...생성된 Vega-Lite 명세..." }
+  }
+  ```
+- **오류 응답**:
+  - `400 Bad Request`: `instruction`이 누락된 경우
+  - `500 Internal Server Error`: 서버 내부 오류 또는 Gemini API 키가 설정되지 않은 경우
+
+### 2.5. 차트 데이터 질의응답
 
 - **엔드포인트**: `POST /api/ask`
 - **설명**: 주어진 Vega-Lite 명세에 대해 자연어 질문에 답변합니다.
