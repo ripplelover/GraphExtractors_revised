@@ -143,6 +143,14 @@ h1, h2, h3 { letter-spacing:-0.02em; margin:0; }
 /* overlay quick toolbar removed per feedback */
 .overlay-toolbar .btn { padding:6px 10px; font-size:13px; }
 
+/* Excalidraw whiteboard: make canvas background transparent so background image shows */
+.excalidraw {
+  background: transparent !important;
+}
+.excalidraw .layer-ui__wrapper {
+  background: transparent !important;
+}
+
 @media (max-width: 768px) {
   .workspace { padding: 12px; }
   .hero { padding:24px; }

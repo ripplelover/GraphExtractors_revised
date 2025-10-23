@@ -27,6 +27,9 @@ interface AppState {
   setProjectThumb?: (id: string, dataUrl: string) => void;
   overlaysByProject?: Record<string, any[]>;
   setOverlaysForProject?: (id: string, items: any[]) => void;
+  // excalidraw scenes per project
+  excalidrawByProject?: Record<string, any>;
+  setExcalidrawForProject?: (id: string, scene: any) => void;
   // ui
   homeTab: "home" | "projects" | "create" | "templates";
   setHomeTab: (t: "home" | "projects" | "create" | "templates") => void;
@@ -54,6 +57,9 @@ export const useApp = create<AppState>((set) => ({
   })(),
   overlaysByProject: (() => {
     try { return JSON.parse(localStorage.getItem('image2graph:overlaysByProject') || '{}'); } catch { return {}; }
+  })(),
+  excalidrawByProject: (() => {
+    try { return JSON.parse(localStorage.getItem('image2graph:excalidrawByProject') || '{}'); } catch { return {}; }
   })(),
   addMsg: (m) => set((st) => {
     const pid = st.currentProjectId || '_global';
@@ -179,6 +185,11 @@ export const useApp = create<AppState>((set) => ({
     const map = { ...(st.overlaysByProject || {}) , [id]: items } as any;
     try { localStorage.setItem('image2graph:overlaysByProject', JSON.stringify(map)); } catch {}
     return { overlaysByProject: map } as any;
+  }),
+  setExcalidrawForProject: (id, scene) => set((st) => {
+    const map = { ...(st.excalidrawByProject || {}), [id]: scene } as any;
+    try { localStorage.setItem('image2graph:excalidrawByProject', JSON.stringify(map)); } catch {}
+    return { excalidrawByProject: map } as any;
   }),
   homeTab: (localStorage.getItem("image2graph:homeTab") as any) || "home",
   setHomeTab: (t) => set(() => { try { localStorage.setItem("image2graph:homeTab", t); } catch {} return { homeTab: t }; }),

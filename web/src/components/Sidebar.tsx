@@ -37,6 +37,12 @@ export default function Sidebar({ onNew, onNewFromTemplate, onLoad, onRename, on
         <button className={`icon-btn${current.includes('/templates') ? ' active' : ''}`} title="템플릿" onClick={(e) => { e.preventDefault(); (window as any).closeProject?.(); (window as any).setHomeTab?.('templates'); (window as any).routerNavigate?.('/templates'); }}>🧩</button>
         <div className="nav-label">템플릿</div>
       </div>
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+        <button className={`icon-btn`} title="Whiteboard" onClick={(e) => { e.preventDefault(); try { window.dispatchEvent(new Event('openWhiteboard')); } catch {} }}>
+          ✏️
+        </button>
+        <div className="nav-label">Whiteboard</div>
+      </div>
       <div style={{ flex:1 }} />
     </aside>
   );

@@ -8,6 +8,7 @@ import { setPrimaryColor, convertBarToPie, convertPieToBar, ensureCategoricalCol
 import HomeDashboard from "./components/HomeDashboard";
 import CreatePage from "./components/CreatePage";
 import Logo from "./components/Logo";
+import ExcalidrawEditor from "./components/ExcalidrawEditor";
 // Router dependency removed for now (using simple hash navigation)
 
 // API base is resolved at runtime: VITE_API_BASE > healthy(4000) > healthy(4001)
@@ -45,6 +46,7 @@ export default function App() {
   const [showEditor, setShowEditor] = useState<boolean>(false);
   const [editorValue, setEditorValue] = useState<string>("");
   const [showCanvas, setShowCanvas] = useState<boolean>(false);
+  const [showWhiteboard, setShowWhiteboard] = useState<boolean>(false);
   const [mode, setMode] = useState<'edit'|'ask'>('edit');
   const [showPlusMenu, setShowPlusMenu] = useState<boolean>(false);
   const [showDataEditor, setShowDataEditor] = useState<boolean>(false);
@@ -77,6 +79,13 @@ export default function App() {
   useEffect(() => {
     document.body.setAttribute('data-theme', 'light');
     try { localStorage.setItem('currentTheme', 'light'); localStorage.setItem('image2graph:theme', 'light'); } catch {}
+  }, []);
+
+  // global event to open whiteboard (for Sidebar/header triggers)
+  useEffect(() => {
+    const fn = () => setShowWhiteboard(true);
+    window.addEventListener('openWhiteboard', fn as EventListener);
+    return () => window.removeEventListener('openWhiteboard', fn as EventListener);
   }, []);
 
   // Restore overlays per project
@@ -259,6 +268,23 @@ export default function App() {
         img.onload = () => { setOriginalImageSize && setOriginalImageSize({ width: img.width, height: img.height }); };
         img.src = dataUrl;
       }
+      // Ensure a project is created immediately on image upload
+      try {
+        const createdId = saveProject();
+        setHomeTab('create');
+        // robust navigation to project route even if same hash/state
+        setTimeout(() => {
+          const target = `#/project/${createdId}`;
+          if (location.hash !== target) {
+            location.replace(target);
+          } else {
+            location.hash = '#/home';
+            location.replace(target);
+          }
+          try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch {}
+          requestAnimationFrame(() => { try { window.dispatchEvent(new HashChangeEvent('hashchange')); } catch {} });
+        }, 0);
+      } catch {}
       const { data } = await axios.post(`${API}/api/convert`, form, { headers: { "Content-Type": "multipart/form-data" } });
       setSpec(fixSpec(ensureCategoricalColors(data.spec)));
       // 저장 후 해당 프로젝트 상세로 이동
@@ -752,7 +778,7 @@ export default function App() {
         />
         <main style={{ padding: 16 }}>
           {homeTab === 'create' ? (
-            !spec ? (
+            !currentProjectId ? (
               <CreatePage onUpload={onUpload} input={input} setInput={setInput} onSend={sendInstruction} onCreateRandomChart={createRandomChart} onGenerateRandomChart={generateRandomChart} busy={busy} />
             ) : (
               <div className="editor-layout">
@@ -1530,6 +1556,9 @@ export default function App() {
             <button className="btn" onClick={applyDataEditor}>적용</button>
           </div>
         </div>
+      )}
+      {showWhiteboard && (
+        <ExcalidrawEditor onClose={() => setShowWhiteboard(false)} />
       )}
     </div>
   );

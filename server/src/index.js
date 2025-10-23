@@ -187,7 +187,27 @@ app.post("/api/convert", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "image required", hint: "send multipart/form-data with field name 'image'" });
     }
     if (!process.env.GOOGLE_API_KEY) {
-      return res.status(500).json({ error: "missing GOOGLE_API_KEY", hint: "set in .env or process env" });
+      // Offline/dev fallback: return a simple spec so UI flows work without API key
+      const fallback = {
+        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        description: "Offline fallback chart",
+        title: "Sample Bar Chart (offline)",
+        width: 520,
+        height: 320,
+        data: { values: [
+          { category: "A", value: 12 },
+          { category: "B", value: 7 },
+          { category: "C", value: 18 }
+        ] },
+        mark: { type: "bar" },
+        encoding: {
+          x: { field: "category", type: "nominal", axis: { labelAngle: 0 } },
+          y: { field: "value", type: "quantitative" },
+          color: { field: "category", type: "nominal", scale: { domain: ["A","B","C"], range: ["#4e79a7","#f28e2b","#e15759"] } }
+        },
+        background: "#ffffff"
+      };
+      return res.json({ spec: fallback, offline: true });
     }
     const instruction = req.body?.instruction;
     const mime = req.file.mimetype || "image/png";
@@ -260,6 +280,18 @@ app.post("/api/edit", async (req, res) => {
   try {
     const { spec, instruction } = req.body || {};
     if (!spec || !instruction) return res.status(400).json({ error: "spec and instruction required" });
+    if (!process.env.GOOGLE_API_KEY) {
+      // Offline/dev fallback: apply a couple of predictable tweaks client-side
+      const next = JSON.parse(JSON.stringify(spec));
+      try { next.title = instruction || next.title || "Edited Chart"; } catch {}
+      try {
+        if (next?.encoding?.color && !next.encoding.color.scale) {
+          next.encoding.color.scale = { range: ["#4e79a7","#f28e2b","#e15759","#76b7b2"] };
+        }
+      } catch {}
+      writeLog("edit-offline", { instruction, spec: next });
+      return res.json({ spec: next, offline: true });
+    }
     writeLog("edit-input", { instruction, spec });
     const out = await callGeminiForEdit(spec, instruction);
     let updated;
@@ -305,9 +337,29 @@ app.post("/api/generate", async (req, res) => {
   try {
     const { instruction } = req.body || {};
     if (!instruction) return res.status(400).json({ error: "instruction required" });
-    
     if (!process.env.GOOGLE_API_KEY) {
-      return res.status(500).json({ error: "missing GOOGLE_API_KEY", hint: "set in .env or process env" });
+      // Offline/dev fallback: generate a simple chart using the instruction as title
+      const spec = {
+        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        description: "Offline generated chart",
+        title: instruction || "Generated Chart",
+        width: 520,
+        height: 320,
+        data: { values: [
+          { category: "Q1", value: 10 },
+          { category: "Q2", value: 16 },
+          { category: "Q3", value: 8 },
+          { category: "Q4", value: 14 }
+        ] },
+        mark: { type: "bar" },
+        encoding: {
+          x: { field: "category", type: "nominal", axis: { labelAngle: 0 } },
+          y: { field: "value", type: "quantitative" },
+          color: { field: "category", type: "nominal" }
+        }
+      };
+      writeLog("generate-offline", { instruction, spec });
+      return res.json({ spec, offline: true });
     }
     
     const prompt = `You are a senior data-vis engineer. Create a Vega-Lite v5 JSON chart based on the user's instruction.
