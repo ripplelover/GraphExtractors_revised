@@ -53,6 +53,10 @@ export default function App() {
   const [showImageModal, setShowImageModal] = useState<boolean>(false);
   const [tableCols, setTableCols] = useState<string[]>([]);
   const [tableRows, setTableRows] = useState<any[]>([]);
+  // Drag state for data table row reordering
+  const [draggingRowIndex, setDraggingRowIndex] = useState<number | null>(null);
+  const [dragOverRowIndex, setDragOverRowIndex] = useState<number | null>(null);
+  const [dragOverPosition, setDragOverPosition] = useState<'top' | 'bottom' | null>(null);
   const [palette, setPalette] = useState<string[]>([]);
   const [overlays, setOverlays] = useState<any[]>([]);
   const [history, setHistory] = useState<any[][]>([]);
@@ -1076,7 +1080,12 @@ export default function App() {
                     <div style={{ position:'absolute', left: 40, top: 40, right: 40, bottom: 40, pointerEvents:'none' }} />
                     <div style={{ position:'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                       <div style={{ pointerEvents: textMode ? 'none' : 'auto' }}>
-                        <ChartView key={`chart-${JSON.stringify(spec?.encoding?.color?.scale?.range)}`} spec={spec} aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined} palette={preferredPalette} />
+                        <ChartView
+                          key={`chart-${(spec?.data?.values && Array.isArray(spec.data.values) ? spec.data.values.length : 0)}-${JSON.stringify(spec?.encoding?.color?.scale?.range)}`}
+                          spec={spec}
+                          aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined}
+                          palette={preferredPalette}
+                        />
                       </div>
                     </div>
                     {/* Overlay for text covering entire canvas */}
@@ -1251,7 +1260,12 @@ export default function App() {
               </div>
               <div className="card" style={{ padding: 12 }}>
                 <div className="muted" style={{ marginBottom: 8 }}>Vega‑Lite</div>
-                <ChartView spec={spec} aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined} palette={preferredPalette} />
+                <ChartView
+                  key={`preview-${(spec?.data?.values && Array.isArray(spec.data.values) ? spec.data.values.length : 0)}-${JSON.stringify(spec?.encoding?.color?.scale?.range)}`}
+                  spec={spec}
+                  aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined}
+                  palette={preferredPalette}
+                />
               </div>
               <div style={{ gridColumn: '1 / span 2' }}>
                   <div className="card" style={{ padding: 12, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', position:'relative' }}>
@@ -1526,6 +1540,7 @@ export default function App() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}></th>
                   {tableCols.map((c, i)=> (
                     <th key={i}>{c}</th>
                   ))}
@@ -1533,7 +1548,22 @@ export default function App() {
               </thead>
               <tbody>
                 {tableRows.map((r, ri)=> (
-                  <tr key={ri}>
+                  <tr
+                    key={ri}
+                    onDragOver={(e)=>{ e.preventDefault(); const rect=(e.currentTarget as HTMLTableRowElement).getBoundingClientRect(); const pos = (e.clientY - rect.top) < rect.height/2 ? 'top' : 'bottom'; setDragOverRowIndex(ri); setDragOverPosition(pos as any); }}
+                    onDragLeave={()=> { setDragOverRowIndex(null); setDragOverPosition(null); }}
+                    onDrop={(e)=>{ e.preventDefault(); if (draggingRowIndex===null) return; let from = draggingRowIndex; let insertIndex = ri + (dragOverPosition==='bottom' ? 1 : 0); const arr=[...tableRows]; const [moved] = arr.splice(from,1); if (from < insertIndex) insertIndex -= 1; if (insertIndex < 0) insertIndex = 0; if (insertIndex > arr.length) insertIndex = arr.length; arr.splice(insertIndex,0,moved); setTableRows(arr); setDraggingRowIndex(null); setDragOverRowIndex(null); setDragOverPosition(null); }}
+                    className={`${draggingRowIndex===ri ? 'dragging' : ''} ${dragOverRowIndex===ri && dragOverPosition==='top' ? 'drag-over-top' : ''} ${dragOverRowIndex===ri && dragOverPosition==='bottom' ? 'drag-over-bottom' : ''}`}
+                  >
+                    <td className="row-drag-cell">
+                      <span
+                        className="row-drag-handle"
+                        title="드래그하여 순서 변경"
+                        draggable
+                        onDragStart={(e)=>{ setDraggingRowIndex(ri); try { e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(ri)); } catch {} }}
+                        onDragEnd={()=> { setDraggingRowIndex(null); setDragOverRowIndex(null); setDragOverPosition(null); }}
+                      >⋮⋮</span>
+                    </td>
                     {tableCols.map((c, ci)=> (
                       <td key={ci}><input value={(r as any)[c]} onChange={e=>{ const v=e.target.value; setTableRows(prev=> prev.map((row, idx)=> idx===ri ? {...row, [c]: v} : row)); }} /></td>
                     ))}

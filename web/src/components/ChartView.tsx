@@ -19,6 +19,7 @@ function withZoomPan(spec: any): any {
 
 export default function ChartView({ spec, aspect, palette }: { spec: any | null, aspect?: number, palette?: string[] }) {
   const ref = useRef<HTMLDivElement>(null);
+  const disposeRef = useRef<null | (() => void)>(null);
   useEffect(() => {
     if (!ref.current || !spec) return;
     const clone: any = JSON.parse(JSON.stringify(spec));
@@ -81,27 +82,36 @@ export default function ChartView({ spec, aspect, palette }: { spec: any | null,
     enhanceAxis('y');
     const vspec = withZoomPan(clone) as VisualizationSpec;
     console.log('ChartView: Starting embed for spec:', spec);
-    embed(ref.current, vspec, { actions: false, renderer: "canvas" }).then(() => {
+
+    // Clean previous view/canvas to avoid stale image selection
+    try { disposeRef.current?.(); } catch {}
+    disposeRef.current = null;
+    try { if (ref.current) ref.current.innerHTML = ''; } catch {}
+
+    embed(ref.current, vspec, { actions: false, renderer: "canvas" }).then((res) => {
+      try { disposeRef.current = () => { try { res?.view?.finalize?.(); } catch {} }; } catch {}
       console.log('ChartView: Embed completed successfully');
-        // Trigger thumbnail update after chart is rendered
-        setTimeout(() => {
-          try {
-            const canvas = ref.current?.querySelector('canvas') as HTMLCanvasElement | null;
-            if (!canvas) {
-              console.log('ChartView: Canvas not found for thumbnail');
-              return;
+        // Trigger thumbnail update after chart is rendered (multiple attempts)
+        [200, 400, 800, 1200].forEach((delay) => {
+          setTimeout(() => {
+            try {
+              const canvas = ref.current?.querySelector('canvas') as HTMLCanvasElement | null;
+              if (!canvas) {
+                console.log('ChartView: Canvas not found for thumbnail at', delay, 'ms');
+                return;
+              }
+              const dataUrl = canvas.toDataURL('image/png');
+              window.dispatchEvent(new CustomEvent('chartRendered', { detail: { dataUrl } }));
+              console.log('ChartView: chartRendered dispatched at', delay, 'ms');
+            } catch (e) {
+              console.error('ChartView thumbnail generation error:', e);
             }
-            const dataUrl = canvas.toDataURL('image/png');
-            console.log('ChartView: Generated thumbnail via chartRendered event');
-            // Dispatch custom event to notify parent components
-            window.dispatchEvent(new CustomEvent('chartRendered', { detail: { dataUrl } }));
-          } catch (e) {
-            console.error('ChartView thumbnail generation error:', e);
-          }
-        }, 200); // Reduced from 500ms to 200ms
+          }, delay);
+        });
     }).catch((error) => {
       console.error('ChartView embed error:', error);
     });
+    return () => { try { disposeRef.current?.(); } catch {}; disposeRef.current = null; };
   }, [spec]);
   const style: React.CSSProperties = { 
     minHeight: 500, 
