@@ -23,6 +23,8 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
   const saveTimer = useRef<number | null>(null);
   const [showBg, setShowBg] = useState<boolean>(!!originalImageSrc);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const excalidrawRef = useRef<any>(null);
+  const [editorKey, setEditorKey] = useState<number>(0);
 
   // keep local scene in sync when project switches and ensure transparent bg when showing background image
   useEffect(() => {
@@ -53,6 +55,17 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
     saveTimer.current = window.setTimeout(() => persist(toSave), 300) as unknown as number;
   }, [persist, originalImageSrc]);
 
+  const triggerDownload = (dataUrl: string, filename = 'whiteboard.png') => {
+    try {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {}
+  };
+
   const exportPNG = useCallback(async () => {
     try {
       if (!scene || !scene.elements) return;
@@ -75,17 +88,33 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
         ctx.drawImage(bgImg, dx, dy, tw, th);
         ctx.drawImage(fgImg, 0, 0, W, H);
         const combined = canvas.toDataURL('image/png');
+        // Trigger download and update thumbnail
+        triggerDownload(combined);
         if (currentProjectId) { setProjectThumb?.(currentProjectId, combined); setTimeout(()=>{ try { saveProject?.(); } catch {} }, 0); }
       } else {
-        const reader = new FileReader(); reader.onload = () => { try { const dataUrl2 = String(reader.result||''); if (currentProjectId) { setProjectThumb?.(currentProjectId, dataUrl2); setTimeout(()=>{ try { saveProject?.(); } catch {} }, 0); } } catch {} }; reader.readAsDataURL(drawBlob);
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const dataUrl2 = String(reader.result||'');
+            triggerDownload(dataUrl2);
+            if (currentProjectId) { setProjectThumb?.(currentProjectId, dataUrl2); setTimeout(()=>{ try { saveProject?.(); } catch {} }, 0); }
+          } catch {}
+        };
+        reader.readAsDataURL(drawBlob);
       }
     } catch (e) { console.error('Excalidraw export error', e); }
   }, [scene, currentProjectId, setProjectThumb, saveProject, showBg, originalImageSrc]);
 
   const clearAll = useCallback(() => {
     const appState = { viewBackgroundColor: originalImageSrc ? 'transparent' : '#ffffff' } as any;
-    setScene({ elements: [], appState, files: {} });
-    if (currentProjectId) setExcalidrawForProject?.(currentProjectId, { elements: [], appState, files: {} });
+    // Update live canvas via imperative API so the editor clears immediately
+    try { excalidrawRef.current?.updateScene?.({ elements: [], appState, files: {} }); } catch {}
+    // Reflect in local state and persist
+    const next = { elements: [], appState, files: {} };
+    setScene(next);
+    if (currentProjectId) setExcalidrawForProject?.(currentProjectId, next);
+    // Force remount as a safety net to ensure the UI resets even if imperative API isn't available
+    setEditorKey((k)=> k + 1);
   }, [currentProjectId, setExcalidrawForProject, originalImageSrc]);
 
   return (
@@ -111,6 +140,8 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
           )}
           <div style={{ position:'absolute', inset:0 }}>
             <Excalidraw
+              key={editorKey}
+              ref={excalidrawRef as any}
               initialData={sanitizeScene(scene, !!originalImageSrc)}
               onChange={onChange}
             />
