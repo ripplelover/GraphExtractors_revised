@@ -30,6 +30,9 @@ interface AppState {
   // excalidraw scenes per project
   excalidrawByProject?: Record<string, any>;
   setExcalidrawForProject?: (id: string, scene: any) => void;
+  // whiteboard background preference per project
+  whiteboardBgByProject?: Record<string, { mode: 'none'|'original'|'chart'; chartBgUrl?: string | null; show: boolean }>;
+  setWhiteboardBgForProject?: (id: string, pref: { mode: 'none'|'original'|'chart'; chartBgUrl?: string | null; show: boolean }) => void;
   // ui
   homeTab: "home" | "projects" | "create" | "templates";
   setHomeTab: (t: "home" | "projects" | "create" | "templates") => void;
@@ -60,6 +63,9 @@ export const useApp = create<AppState>((set) => ({
   })(),
   excalidrawByProject: (() => {
     try { return JSON.parse(localStorage.getItem('image2graph:excalidrawByProject') || '{}'); } catch { return {}; }
+  })(),
+  whiteboardBgByProject: (() => {
+    try { return JSON.parse(localStorage.getItem('image2graph:whiteboardBgByProject') || '{}'); } catch { return {}; }
   })(),
   addMsg: (m) => set((st) => {
     const pid = st.currentProjectId || '_global';
@@ -152,8 +158,14 @@ export const useApp = create<AppState>((set) => ({
     const map = { ...st.messagesByProject };
     delete map[id];
     try { localStorage.setItem('image2graph:messagesByProject', JSON.stringify(map)); } catch {}
+    // cleanup whiteboard prefs and excalidraw scenes
+    const wb = { ...(st.whiteboardBgByProject || {}) } as any;
+    const ex = { ...(st.excalidrawByProject || {}) } as any;
+    delete wb[id]; delete ex[id];
+    try { localStorage.setItem('image2graph:whiteboardBgByProject', JSON.stringify(wb)); } catch {}
+    try { localStorage.setItem('image2graph:excalidrawByProject', JSON.stringify(ex)); } catch {}
     const messages = currentProjectId ? (map[currentProjectId] || []) : [];
-    return { projects, currentProjectId, spec, messagesByProject: map, messages } as any;
+    return { projects, currentProjectId, spec, messagesByProject: map, messages, whiteboardBgByProject: wb, excalidrawByProject: ex } as any;
   }),
   renameProject: (id, name) => set((st) => {
     const projects = st.projects.map((p) => p.id === id ? { ...p, name, updatedAt: Date.now() } : p);
@@ -190,6 +202,11 @@ export const useApp = create<AppState>((set) => ({
     const map = { ...(st.excalidrawByProject || {}), [id]: scene } as any;
     try { localStorage.setItem('image2graph:excalidrawByProject', JSON.stringify(map)); } catch {}
     return { excalidrawByProject: map } as any;
+  }),
+  setWhiteboardBgForProject: (id, pref) => set((st) => {
+    const map = { ...(st.whiteboardBgByProject || {}), [id]: pref } as any;
+    try { localStorage.setItem('image2graph:whiteboardBgByProject', JSON.stringify(map)); } catch {}
+    return { whiteboardBgByProject: map } as any;
   }),
   homeTab: (localStorage.getItem("image2graph:homeTab") as any) || "home",
   setHomeTab: (t) => set(() => { try { localStorage.setItem("image2graph:homeTab", t); } catch {} return { homeTab: t }; }),

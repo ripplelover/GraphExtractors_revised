@@ -17,34 +17,33 @@ function sanitizeScene(base: any, makeTransparent: boolean) {
 }
 
 export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
-  const { currentProjectId, excalidrawByProject, setExcalidrawForProject, setProjectThumb, saveProject, originalImageSrc, originalImageSize } = useApp() as any;
+  const { currentProjectId, excalidrawByProject, setExcalidrawForProject, setProjectThumb, saveProject, originalImageSrc, originalImageSize, whiteboardBgByProject, setWhiteboardBgForProject } = useApp() as any;
   const rawInitial = useMemo(() => (currentProjectId && excalidrawByProject?.[currentProjectId]) || null, [currentProjectId, excalidrawByProject]);
+  const bgPref = useMemo(() => (currentProjectId && whiteboardBgByProject?.[currentProjectId]) || null, [currentProjectId, whiteboardBgByProject]);
   const [scene, setScene] = useState<any | null>(null);
   const saveTimer = useRef<number | null>(null);
-  const [showBg, setShowBg] = useState<boolean>(!!originalImageSrc);
+  const [showBg, setShowBg] = useState<boolean>(bgPref?.show ?? !!originalImageSrc);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const excalidrawRef = useRef<any>(null);
   const [editorKey, setEditorKey] = useState<number>(0);
-  const [bgMode, setBgMode] = useState<'none'|'original'|'chart'>(!!originalImageSrc ? 'original' : 'none');
-  const [chartBgUrl, setChartBgUrl] = useState<string | null>(null);
+  const [bgMode, setBgMode] = useState<'none'|'original'|'chart'>(bgPref?.mode ?? (!!originalImageSrc ? 'original' : 'none'));
+  const [chartBgUrl, setChartBgUrl] = useState<string | null>(bgPref?.chartBgUrl ?? null);
 
   // keep local scene in sync when project switches and ensure transparent bg when showing background image
   useEffect(() => {
     const safe = sanitizeScene(rawInitial, !!originalImageSrc);
     setScene(safe);
+    // Also hydrate the live editor if mounted, so reopening restores drawings
+    try { excalidrawRef.current?.updateScene?.(safe); } catch {}
   }, [rawInitial, originalImageSrc]);
 
-  // keep background toggle and mode in sync with latest image presence
+  // If original image disappears while selected, fallback to none; otherwise do not override user's choice
   useEffect(() => {
-    if (originalImageSrc) {
-      setBgMode((m)=> m==='none' ? 'original' : m);
-      setShowBg(true);
-    } else if (bgMode === 'original') {
-      // fallback to none if original image disappears
+    if (!originalImageSrc && bgMode === 'original') {
       setBgMode('none');
       setShowBg(false);
     }
-  }, [originalImageSrc]);
+  }, [originalImageSrc, bgMode]);
 
   // helper to capture current chart canvas as data URL
   const captureChartBackground = useCallback(() => {
@@ -62,6 +61,12 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (bgMode === 'chart' && !chartBgUrl) captureChartBackground();
   }, [bgMode]);
+
+  // persist background preference per project
+  useEffect(() => {
+    if (!currentProjectId || !setWhiteboardBgForProject) return;
+    try { setWhiteboardBgForProject(currentProjectId, { mode: bgMode, chartBgUrl, show: showBg }); } catch {}
+  }, [currentProjectId, bgMode, chartBgUrl, showBg, setWhiteboardBgForProject]);
 
   const persist = useCallback((next: any) => {
     if (!currentProjectId) return;
@@ -183,7 +188,7 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
             <Excalidraw
               key={editorKey}
               ref={excalidrawRef as any}
-              initialData={sanitizeScene(scene, !!originalImageSrc)}
+              initialData={sanitizeScene(rawInitial || scene, !!originalImageSrc)}
               onChange={onChange}
             />
           </div>
