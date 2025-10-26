@@ -25,6 +25,8 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const excalidrawRef = useRef<any>(null);
   const [editorKey, setEditorKey] = useState<number>(0);
+  const [bgMode, setBgMode] = useState<'none'|'original'|'chart'>(!!originalImageSrc ? 'original' : 'none');
+  const [chartBgUrl, setChartBgUrl] = useState<string | null>(null);
 
   // keep local scene in sync when project switches and ensure transparent bg when showing background image
   useEffect(() => {
@@ -32,8 +34,34 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
     setScene(safe);
   }, [rawInitial, originalImageSrc]);
 
-  // keep background toggle in sync with latest image presence
-  useEffect(() => { setShowBg(!!originalImageSrc); }, [originalImageSrc]);
+  // keep background toggle and mode in sync with latest image presence
+  useEffect(() => {
+    if (originalImageSrc) {
+      setBgMode((m)=> m==='none' ? 'original' : m);
+      setShowBg(true);
+    } else if (bgMode === 'original') {
+      // fallback to none if original image disappears
+      setBgMode('none');
+      setShowBg(false);
+    }
+  }, [originalImageSrc]);
+
+  // helper to capture current chart canvas as data URL
+  const captureChartBackground = useCallback(() => {
+    try {
+      const canvas = document.querySelector('.editor-canvas canvas') as HTMLCanvasElement | null;
+      if (!canvas) return false;
+      const dataUrl = canvas.toDataURL('image/png');
+      setChartBgUrl(dataUrl);
+      setShowBg(true);
+      return true;
+    } catch { return false; }
+  }, []);
+
+  // when entering chart mode, capture once
+  useEffect(() => {
+    if (bgMode === 'chart' && !chartBgUrl) captureChartBackground();
+  }, [bgMode]);
 
   const persist = useCallback((next: any) => {
     if (!currentProjectId) return;
@@ -70,12 +98,13 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
     try {
       if (!scene || !scene.elements) return;
       const drawBlob = await exportToBlob({ elements: scene.elements, appState: scene.appState, files: scene.files, mimeType: 'image/png', quality: 1 });
-      if (showBg && originalImageSrc && containerRef.current) {
+      const bgUrl = showBg ? (bgMode==='original' ? originalImageSrc : (bgMode==='chart' ? chartBgUrl : null)) : null;
+      if (showBg && bgUrl && containerRef.current) {
         const bgImg = new Image();
         const fgImg = new Image();
         const dataUrl = await new Promise<string>((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result||'')); r.readAsDataURL(drawBlob); });
         await new Promise<void>((resolve)=> { fgImg.onload = ()=> resolve(); fgImg.src = dataUrl; });
-        await new Promise<void>((resolve)=> { bgImg.onload = ()=> resolve(); bgImg.src = originalImageSrc; });
+        await new Promise<void>((resolve)=> { bgImg.onload = ()=> resolve(); bgImg.src = bgUrl!; });
         const rect = containerRef.current.getBoundingClientRect();
         const W = Math.max(600, Math.floor(rect.width));
         const H = Math.max(400, Math.floor(rect.height));
@@ -103,7 +132,7 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
         reader.readAsDataURL(drawBlob);
       }
     } catch (e) { console.error('Excalidraw export error', e); }
-  }, [scene, currentProjectId, setProjectThumb, saveProject, showBg, originalImageSrc]);
+  }, [scene, currentProjectId, setProjectThumb, saveProject, showBg, originalImageSrc, bgMode, chartBgUrl]);
 
   const clearAll = useCallback(() => {
     const appState = { viewBackgroundColor: originalImageSrc ? 'transparent' : '#ffffff' } as any;
@@ -122,12 +151,24 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
       <div style={{ width:'min(1200px, 96vw)', height:'min(780px, 92vh)', background:'#fff', borderRadius:12, boxShadow:'0 10px 30px rgba(0,0,0,.35)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', borderBottom:'1px solid #e5e7eb' }}>
           <div style={{ fontWeight:600 }}>Whiteboard (Excalidraw)</div>
-        <div style={{ display:'flex', gap:8 }}>
-            {originalImageSrc && (
-              <label className="btn" style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                <input type="checkbox" checked={showBg} onChange={e=> setShowBg(e.target.checked)} />
-                배경 이미지
-              </label>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <label className="btn" style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+              <input type="checkbox" checked={showBg && bgMode!=='none'} onChange={e=> setShowBg(e.target.checked)} />
+              배경 이미지
+            </label>
+            <select className="btn" value={bgMode} onChange={(e)=> {
+              const v = e.target.value as any;
+              setBgMode(v);
+              if (v==='none') setShowBg(false);
+              if (v==='chart') captureChartBackground();
+              if (v==='original' && originalImageSrc) setShowBg(true);
+            }}>
+              <option value="none">없음</option>
+              <option value="original" disabled={!originalImageSrc}>원본 이미지</option>
+              <option value="chart">현재 차트</option>
+            </select>
+            {bgMode==='chart' && (
+              <button className="btn" onClick={()=> captureChartBackground() || alert('차트 캔버스를 찾을 수 없습니다.')}>배경 새로고침</button>
             )}
             <button className="btn" onClick={exportPNG}>Export PNG</button>
             <button className="btn" onClick={clearAll}>Clear</button>
@@ -135,8 +176,8 @@ export default function ExcalidrawEditor({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div ref={containerRef} style={{ flex:1, position:'relative' }}>
-          {originalImageSrc && showBg && (
-            <img src={originalImageSrc} alt="bg" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'contain', pointerEvents:'none', userSelect:'none' }} />
+          {showBg && (bgMode==='original' ? !!originalImageSrc : !!chartBgUrl) && (
+            <img src={bgMode==='original' ? originalImageSrc : chartBgUrl!} alt="bg" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'contain', pointerEvents:'none', userSelect:'none' }} />
           )}
           <div style={{ position:'absolute', inset:0 }}>
             <Excalidraw
