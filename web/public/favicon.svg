@@ -1,0 +1,27 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="32" fill="url(#gradient)"/>
+  
+  <!-- Chart bars -->
+  <rect x="14" y="40" width="4" height="12" fill="white" rx="2"/>
+  <rect x="22" y="32" width="4" height="20" fill="white" rx="2"/>
+  <rect x="30" y="24" width="4" height="28" fill="white" rx="2"/>
+  <rect x="38" y="16" width="4" height="36" fill="white" rx="2"/>
+  <rect x="46" y="28" width="4" height="24" fill="white" rx="2"/>
+  
+  <!-- Image icon -->
+  <rect x="10" y="8" width="16" height="12" fill="white" rx="2"/>
+  <circle cx="14" cy="12" r="2" fill="#667eea"/>
+  <path d="M10 16L14 12L18 16L22 12L26 16" stroke="#667eea" stroke-width="1" fill="none"/>
+  
+  <!-- Arrow indicating transformation -->
+  <path d="M30 14L38 14" stroke="#667eea" stroke-width="2" stroke-linecap="round"/>
+  <path d="M34 10L38 14L34 18" stroke="#667eea" stroke-width="2" stroke-linecap="round" fill="none"/>
+  
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+</svg>
