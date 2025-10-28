@@ -136,41 +136,84 @@ export default function ExcalidrawEditor({ onClose, chartThumbnail }: { onClose:
 
   const exportPNG = useCallback(async () => {
     try {
-      if (!scene || !scene.elements) return;
-      const drawBlob = await exportToBlob({ elements: scene.elements, appState: scene.appState, files: scene.files, mimeType: 'image/png', quality: 1 });
-      const bgUrl = showBg ? (bgMode==='original' ? originalImageSrc : (bgMode==='chart' ? chartThumbnail : null)) : null;
-      if (showBg && bgUrl && containerRef.current) {
-        const bgImg = new Image();
-        const fgImg = new Image();
-        const dataUrl = await new Promise<string>((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result||'')); r.readAsDataURL(drawBlob); });
-        await new Promise<void>((resolve)=> { fgImg.onload = ()=> resolve(); fgImg.src = dataUrl; });
-        await new Promise<void>((resolve)=> { bgImg.onload = ()=> resolve(); bgImg.src = bgUrl!; });
-        const rect = containerRef.current.getBoundingClientRect();
-        const W = Math.max(600, Math.floor(rect.width));
-        const H = Math.max(400, Math.floor(rect.height));
-        const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
-        const ctx = canvas.getContext('2d'); if (!ctx) return;
-        ctx.fillStyle = '#fff'; ctx.fillRect(0,0,W,H);
-        const s = Math.min(W / bgImg.width, H / bgImg.height);
-        const tw = bgImg.width * s, th = bgImg.height * s;
-        const dx = (W - tw)/2, dy = (H - th)/2;
-        ctx.drawImage(bgImg, dx, dy, tw, th);
-        ctx.drawImage(fgImg, 0, 0, W, H);
-        const combined = canvas.toDataURL('image/png');
-        // Trigger download and update thumbnail
-        triggerDownload(combined);
-        if (currentProjectId) { setProjectThumb?.(currentProjectId, combined); setTimeout(()=>{ try { saveProject?.(); } catch {} }, 0); }
+      if (!containerRef.current) return;
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
+      const cw = Math.max(1, Math.floor(rect.width));
+      const ch = Math.max(1, Math.floor(rect.height));
+
+      // Capture the live Excalidraw canvas to preserve exact on-screen positions
+      const liveCanvas = container.querySelector('div[style*="inset: 0"]')?.querySelector('canvas') as HTMLCanvasElement | null
+        || container.querySelector('canvas') as HTMLCanvasElement | null;
+
+      let fgImg: HTMLImageElement | null = null;
+      let fgScaleX = 1, fgScaleY = 1; // device-pixel ratio mapping
+      if (liveCanvas) {
+        const liveUrl = liveCanvas.toDataURL('image/png');
+        const tmp = new Image();
+        await new Promise<void>((resolve)=> { tmp.onload = ()=> resolve(); tmp.src = liveUrl; });
+        fgImg = tmp;
+        fgScaleX = (liveCanvas.width || tmp.width) / cw;
+        fgScaleY = (liveCanvas.height || tmp.height) / ch;
       } else {
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const dataUrl2 = String(reader.result||'');
-            triggerDownload(dataUrl2);
-            if (currentProjectId) { setProjectThumb?.(currentProjectId, dataUrl2); setTimeout(()=>{ try { saveProject?.(); } catch {} }, 0); }
-          } catch {}
-        };
-        reader.readAsDataURL(drawBlob);
+        // Fallback to export API if live canvas not found
+        if (!scene || !scene.elements) return;
+        const drawBlob = await exportToBlob({ elements: scene.elements, appState: scene.appState, files: scene.files, mimeType: 'image/png', quality: 1 });
+        const fgUrl = await new Promise<string>((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result||'')); r.readAsDataURL(drawBlob); });
+        const tmp = new Image();
+        await new Promise<void>((resolve)=> { tmp.onload = ()=> resolve(); tmp.src = fgUrl; });
+        fgImg = tmp;
+        fgScaleX = fgScaleY = 1;
       }
+
+      if (!fgImg) return;
+
+      const bgUrl = showBg ? (bgMode==='original' ? originalImageSrc : (bgMode==='chart' ? chartThumbnail : null)) : null;
+      let W = 0, H = 0;
+      let bgImg: HTMLImageElement | null = null;
+      if (showBg && bgUrl) {
+        bgImg = new Image();
+        await new Promise<void>((resolve)=> { bgImg!.onload = ()=> resolve(); bgImg!.src = bgUrl!; });
+        const bw = bgImg.naturalWidth || bgImg.width;
+        const bh = bgImg.naturalHeight || bgImg.height;
+        W = bw; H = bh;
+      } else {
+        // No background: export exactly the visible drawing
+        W = Math.max(1, Math.floor(cw));
+        H = Math.max(1, Math.floor(ch));
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d'); if (!ctx) return;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, W, H);
+
+      if (bgImg) {
+        // Draw full-resolution background
+        ctx.drawImage(bgImg, 0, 0, W, H);
+        // On-screen background placement (max 75%, contain, centered)
+        const bw = W, bh = H;
+        const s = Math.min(1, Math.min(0.75 * cw / bw, 0.75 * ch / bh));
+        const tw = bw * s;
+        const th = bh * s;
+        const dx = (cw - tw) / 2;
+        const dy = (ch - th) / 2;
+        // Map the portion of the live Excalidraw canvas that overlays the background
+        const sx = dx * fgScaleX;
+        const sy = dy * fgScaleY;
+        const sw = tw * fgScaleX;
+        const sh = th * fgScaleY;
+        ctx.drawImage(fgImg, sx, sy, sw, sh, 0, 0, W, H);
+      } else {
+        // No background: draw the full live canvas
+        const sx = 0, sy = 0, sw = (fgImg as any).naturalWidth || fgImg.width, sh = (fgImg as any).naturalHeight || fgImg.height;
+        ctx.drawImage(fgImg, sx, sy, sw, sh, 0, 0, W, H);
+      }
+
+      const combined = canvas.toDataURL('image/png');
+      triggerDownload(combined);
+      try { if (currentProjectId) saveProject?.(); } catch {}
     } catch (e) { console.error('Excalidraw export error', e); }
   }, [scene, currentProjectId, setProjectThumb, saveProject, showBg, originalImageSrc, bgMode, chartThumbnail]);
 
