@@ -26,19 +26,20 @@ export default function ExcalidrawEditor({ onClose, chartThumbnail }: { onClose:
   const excalidrawRef = useRef<any>(null);
   const [editorKey, setEditorKey] = useState<number>(0);
   const [bgMode, setBgMode] = useState<'none'|'original'|'chart'>(() => {
-    // Always default to chart if no original image and thumbnail exists
+    // Prefer persisted preference first
+    if (bgPref?.mode) return bgPref.mode as 'none'|'original'|'chart';
+    // Fallback heuristics
     if (originalImageSrc) return 'original';
     if (chartThumbnail) return 'chart';
-    if (bgPref?.mode) return bgPref.mode;
-    return 'chart';
+    return 'none';
   });
   // Removed chartBgUrl state entirely - just use chartThumbnail prop directly
   const [showBg, setShowBg] = useState<boolean>(() => {
-    // If chartThumbnail is provided and no original image, always show background by default
-    if (chartThumbnail && !originalImageSrc) return true;
-    if (originalImageSrc) return true;
-    // Otherwise use persisted preference
-    return bgPref?.show ?? false;
+    // Prefer persisted preference first
+    if (typeof bgPref?.show === 'boolean') return bgPref.show;
+    // Fallback: show if any background exists
+    if (originalImageSrc || chartThumbnail) return true;
+    return false;
   });
 
   // Calculate if background should be visible
