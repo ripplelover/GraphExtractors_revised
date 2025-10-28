@@ -1,39 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import ChartView from "./components/ChartView";
+import ChartOverlay from "./components/ChartOverlay";
 import Sidebar from "./components/Sidebar";
 import Inspector from "./components/Inspector";
 import { useApp } from "./store";
 import { setPrimaryColor, convertBarToPie, convertPieToBar, ensureCategoricalColors } from "./utils/specTransforms";
+import { fixSpec } from "./utils/specFixer";
+import { findDataValues, findColorEncoding, updateDataValues } from "./utils/dataUtils";
+import { useApiBase } from "./hooks/useApiBase";
 import HomeDashboard from "./components/HomeDashboard";
 import CreatePage from "./components/CreatePage";
 import Logo from "./components/Logo";
 import ExcalidrawEditor from "./components/ExcalidrawEditor";
+import JsonEditorDrawer from "./components/JsonEditorDrawer";
+import DataEditorDrawer from "./components/DataEditorDrawer";
+import CanvasEditorDrawer from "./components/CanvasEditorDrawer";
 // Router dependency removed for now (using simple hash navigation)
 
-// API base is resolved at runtime: VITE_API_BASE > healthy(4000) > healthy(4001)
-function useApiBase() {
-  const [base, setBase] = useState<string>(
-    ((import.meta as any).env?.VITE_API_BASE as string) || "http://localhost:4000"
-  );
-  useEffect(() => {
-    if ((import.meta as any).env?.VITE_API_BASE) return; // respect explicit override
-    const tryHealth = async (url: string) => {
-      try {
-        const r = await fetch(`${url}/api/health`);
-        return r.ok;
-      } catch {
-        return false;
-      }
-    };
-    (async () => {
-      if (await tryHealth("http://localhost:4000")) return setBase("http://localhost:4000");
-      if (await tryHealth("http://localhost:4001")) return setBase("http://localhost:4001");
-      // keep default; user can set VITE_API_BASE
-    })();
-  }, []);
-  return base;
-}
+// Router dependency removed for now (using simple hash navigation)
 
 export default function App() {
   const API = useApiBase();
@@ -54,9 +39,6 @@ export default function App() {
   const [tableCols, setTableCols] = useState<string[]>([]);
   const [tableRows, setTableRows] = useState<any[]>([]);
   // Drag state for data table row reordering
-  const [draggingRowIndex, setDraggingRowIndex] = useState<number | null>(null);
-  const [dragOverRowIndex, setDragOverRowIndex] = useState<number | null>(null);
-  const [dragOverPosition, setDragOverPosition] = useState<'top' | 'bottom' | null>(null);
   const [palette, setPalette] = useState<string[]>([]);
   const [overlays, setOverlays] = useState<any[]>([]);
   const [history, setHistory] = useState<any[][]>([]);
@@ -67,8 +49,7 @@ export default function App() {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [selectedSet, setSelectedSet] = useState<Set<number>>(new Set());
   const [textMode, setTextMode] = useState<boolean>(false); // 텍스트 추가 모드
-  type DragState = { idx:number; offsetX:number; offsetY:number; mode:'move'|'resize'; handle?:'nw'|'ne'|'se'|'sw' };
-  const [drag, setDrag] = useState<DragState | null>(null);
+  // Drag state moved into CanvasEditorDrawer and ChartOverlay components
   const [catField, setCatField] = useState<string | null>(null);
   const [catOrder, setCatOrder] = useState<string[]>([]);
   const [catColors, setCatColors] = useState<Record<string,string>>({});
@@ -231,31 +212,7 @@ export default function App() {
     }
   }, [homeTab]);
 
-  // --- Spec fixer for overlapped/stacked charts ---
-  function fixSpec(s: any): any {
-    try {
-      const spec = JSON.parse(JSON.stringify(s));
-      // normalize only when the label suggests percentage
-      if (spec?.encoding?.y && spec?.encoding?.color) {
-        const y = spec.encoding.y;
-        const looksPercent = y?.title && String(y.title).match(/%|percent|퍼센트|비율/i);
-        if (looksPercent) {
-          if (!y.stack) y.stack = 'normalize';
-        } else if (y?.stack === 'normalize') {
-          // avoid unintended normalization
-          delete y.stack;
-        }
-      }
-      // label improvements
-      if (spec?.encoding?.x) {
-        spec.encoding.x.axis = { ...(spec.encoding.x.axis || {}), labelAngle: 0, labelOverlap: true, labelLimit: 140 };
-      }
-      if (spec?.encoding?.y) {
-        spec.encoding.y.axis = { ...(spec.encoding.y.axis || {}), labelOverlap: true };
-      }
-      return spec;
-    } catch { return s; }
-  }
+  // Spec fixer moved to utils/specFixer
 
   const onUpload = async (f: File, dataUrl?: string, instruction?: string) => {
     const form = new FormData();
@@ -511,62 +468,7 @@ export default function App() {
     a.click();
   };
 
-  // Helper to find data.values in nested layer structures
-  function findDataValues(obj: any): any[] | null {
-    if (!obj) return null;
-    // Direct data.values
-    if (obj.data?.values && Array.isArray(obj.data.values)) return obj.data.values;
-    // Check layers
-    if (obj.layer && Array.isArray(obj.layer)) {
-      for (const layer of obj.layer) {
-        const found = findDataValues(layer);
-        if (found) return found;
-      }
-    }
-    // Check nested specs
-    if (obj.spec) return findDataValues(obj.spec);
-    return null;
-  }
-
-  function findColorEncoding(obj: any): any {
-    if (!obj) return null;
-    // Direct encoding.color
-    if (obj.encoding?.color) return obj.encoding.color;
-    // Check layers
-    if (obj.layer && Array.isArray(obj.layer)) {
-      for (const layer of obj.layer) {
-        const found = findColorEncoding(layer);
-        if (found) return found;
-      }
-    }
-    // Check nested specs
-    if (obj.spec) return findColorEncoding(obj.spec);
-    return null;
-  }
-
-  function updateDataValues(obj: any, newValues: any[]): any {
-    if (!obj) return obj;
-    // Direct data.values
-    if (obj.data?.values && Array.isArray(obj.data.values)) {
-      obj.data.values = newValues;
-      return obj;
-    }
-    // Check layers
-    if (obj.layer && Array.isArray(obj.layer)) {
-      for (const layer of obj.layer) {
-        if (layer.data?.values && Array.isArray(layer.data.values)) {
-          layer.data.values = newValues;
-          return obj;
-        }
-        updateDataValues(layer, newValues);
-      }
-    }
-    // Check nested specs
-    if (obj.spec) {
-      updateDataValues(obj.spec, newValues);
-    }
-    return obj;
-  }
+  // Data utils moved to utils/dataUtils
 
   // --- Data Editor helpers ---
   function openDataEditor() {
@@ -587,61 +489,7 @@ export default function App() {
     setShowDataEditor(true);
   }
 
-  function applyDataEditor() {
-    try {
-      const values = tableRows.map(r => {
-        const obj: any = {};
-        tableCols.forEach(c => { obj[c] = parseMaybeNumber((r as any)[c]); });
-        return obj;
-      });
-      const next = JSON.parse(JSON.stringify(spec));
-      // Update data.values in nested structures
-      updateDataValues(next, values);
-      if (palette && palette.length) {
-        const colorEnc = findColorEncoding(next);
-        if (colorEnc) {
-          colorEnc.scale = colorEnc.scale || {};
-          colorEnc.scale.range = palette;
-        }
-      }
-      // sync domains with current data for stable ordering and to include new categories
-      try {
-        const colorEnc = findColorEncoding(next);
-        const colorField = colorEnc?.field;
-        if (colorField) {
-          const dom = Array.from(new Set(values.map((v:any)=> v?.[colorField]).filter((v:any)=> v!==undefined)));
-          if (colorEnc) {
-            colorEnc.scale = colorEnc.scale || {};
-            colorEnc.scale.domain = dom;
-            const range = (colorEnc.scale.range || []) as string[];
-            if (range.length < dom.length) {
-              const needed = dom.length - range.length;
-              colorEnc.scale.range = [...range, ...Array.from({length: needed}).map((_,i)=> ['#e63946','#457b9d','#2a9d8f','#f4a261','#e9c46a','#a78bfa','#22c55e','#ef4444','#06b6d4','#f59e0b'][i % 10])];
-            }
-          }
-        }
-      } catch {}
-      try {
-        const xField = next?.encoding?.x?.field;
-        if (xField && (next?.encoding?.x?.type === 'nominal' || !next?.encoding?.x?.type)) {
-          const xdom = Array.from(new Set(values.map((v:any)=> v?.[xField]).filter((v:any)=> v!==undefined)));
-          next.encoding.x.scale = { ...(next.encoding.x.scale||{}), domain: xdom };
-        }
-      } catch {}
-      // palette update if color field present
-      setSpec(next);
-      setShowDataEditor(false);
-      saveProject();
-    } catch (e:any) {
-      alert('데이터 적용 중 오류: ' + e.message);
-    }
-  }
-
-  function parseMaybeNumber(v:any){
-    if (v === '' || v === null || v === undefined) return '';
-    const n = Number(v);
-    return isNaN(n) ? v : n;
-  }
+  // data editor logic moved into DataEditorDrawer component
 
   // --- Category color mapping helpers ---
   useEffect(()=>{
@@ -1129,68 +977,17 @@ export default function App() {
                     setSelectedIdx(null);
                   }}
                 >
-                  <div className="vl-container chart-with-overlay" style={{ position:'relative', width: '100%', height: '100%', minWidth: '800px', minHeight: '600px' }} onDoubleClick={(e)=>{
-                    if (!textMode) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                    const x = Math.round(e.clientX - rect.left);
-                    const y = Math.round(e.clientY - rect.top);
-                    console.log('Chart container double click:', x, y);
-                    addTextAt(x, y);
-                    setTextMode(false);
-                  }}>
-                    {/* chart box on grid */}
-                    <div style={{ position:'absolute', left: 40, top: 40, right: 40, bottom: 40, pointerEvents:'none' }} />
-                    <div style={{ position:'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                      <div style={{ pointerEvents: textMode ? 'none' : 'auto' }}>
-                        <ChartView
-                          key={`chart-${(spec?.data?.values && Array.isArray(spec.data.values) ? spec.data.values.length : 0)}-${JSON.stringify(spec?.encoding?.color?.scale?.range)}`}
-                          spec={spec}
-                          aspect={originalImageSize ? originalImageSize.width / originalImageSize.height : undefined}
-                          palette={preferredPalette}
-                        />
-                      </div>
-                    </div>
-                    {/* Overlay for text covering entire canvas */}
-                    <svg className="overlay-svg" style={{ width: '100%', height: '100%', position:'absolute', left:0, top:0 }} viewBox="0 0 1000 1000" onMouseMove={(e)=>{
-                      if (!drag) return;
-                      const svgRect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-                      const maxX = 1000; const maxY = 1000;
-                      const x = Math.max(0, Math.min(maxX, e.clientX - svgRect.left - drag.offsetX));
-                      const y = Math.max(0, Math.min(maxY, e.clientY - svgRect.top - drag.offsetY));
-                      setOverlays(prev=> prev.map((o,idx)=> idx===drag.idx ? { ...o, x, y } : o));
-                    }} onMouseUp={()=> setDrag(null)} onMouseLeave={()=> setDrag(null)}>
-                      {overlays.filter(o=>o.type==='text').map((o,i)=> (
-                        <text key={i} x={o.x||100} y={o.y||100} fill={o.color||'#111827'} fontSize={o.size||18}
-                          style={{ cursor:'move', userSelect:'none', fontFamily: (o as any).fontFamily || 'system-ui' }}
-                          onMouseDown={(e)=>{ setSelectedIdx(i); const svgRect=(e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); const curX=(o.x||0); const curY=(o.y||0); setDrag({ idx:i, offsetX: (e.clientX - svgRect.left) - curX, offsetY: (e.clientY - svgRect.top) - curY, mode:'move' }); }}
-                          onDoubleClick={(e)=>{ e.stopPropagation(); setSelectedIdx(i); }}
-                        >{o.text||'텍스트'}</text>
-                      ))}
-                      {overlays.filter(o=>o.type==='rect').map((o,i)=> (
-                        <rect key={`r${i}`} x={o.x||100} y={o.y||100} width={o.w||120} height={o.h||60} fill={o.color||'rgba(0,0,0,0.1)'} stroke={o.stroke||'#111827'}
-                          onMouseDown={(e)=>{ setSelectedIdx(i); const svgRect=(e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); const curX=(o.x||0); const curY=(o.y||0); setDrag({ idx:i, offsetX: (e.clientX - svgRect.left) - curX, offsetY: (e.clientY - svgRect.top) - curY, mode:'move' }); }} />
-                      ))}
-                    </svg>
-                  {textMode && (
-                    <div style={{ 
-                      position: 'absolute', 
-                      top: '20px', 
-                      left: '50%', 
-                      transform: 'translateX(-50%)', 
-                      background: 'rgba(0,0,0,0.8)', 
-                      color: 'white', 
-                      padding: '12px 20px', 
-                      borderRadius: '8px', 
-                      fontSize: '14px',
-                      pointerEvents: 'none',
-                      zIndex: 10
-                    }}>
-                      캔버스 어디든 더블클릭하여 텍스트 추가 (차트 위에서도 가능)
-                    </div>
-                  )}
-                  </div>
+                    <ChartOverlay
+                      spec={spec}
+                      originalImageSize={originalImageSize}
+                      preferredPalette={preferredPalette}
+                      overlays={overlays}
+                      setOverlays={(updater)=> setOverlays(updater as any)}
+                      textMode={textMode}
+                      setTextMode={setTextMode}
+                      setSelectedIdx={(i)=> setSelectedIdx(i)}
+                      onAddTextAt={(x,y)=> addTextAt(x,y)}
+                    />
                 </section>
                 <div style={{ gridColumn: '1 / span 2' }}>
                   <div className="card" style={{ padding: 12, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', position:'relative' }}>
@@ -1373,285 +1170,48 @@ export default function App() {
       </div>
       {toast && <div className="toast">{toast}</div>}
       {showEditor && (
-        <>
-          <div className="backdrop" onClick={() => setShowEditor(false)} />
-          <div className="drawer">
-            <div className="drawer-header">
-              <div>Vega-Lite JSON</div>
-              <div className="flex gap-2">
-                <button className="btn" onClick={() => { try { const next = JSON.parse(editorValue); setSpec(next); setToast('Applied'); setTimeout(()=> setToast(''), 1600); } catch (e) { alert('JSON 오류: '+(e as any).message); } }}>Apply</button>
-                <button className="btn" onClick={() => setShowEditor(false)}>Close</button>
-              </div>
-            </div>
-            <div className="drawer-body">
-              <textarea value={editorValue} onChange={e=>setEditorValue(e.target.value)} style={{ width:'100%', height:'100%', fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize:13 }} />
-            </div>
-          </div>
-        </>
+        <JsonEditorDrawer
+          value={editorValue}
+          onChange={setEditorValue}
+          onApply={() => { try { const next = JSON.parse(editorValue); setSpec(next); setToast('Applied'); setTimeout(()=> setToast(''), 1600); } catch (e:any) { alert('JSON 오류: '+ e.message); } }}
+          onClose={() => setShowEditor(false)}
+        />
       )}
       {showCanvas && (
-        <>
-          <div className="backdrop" onClick={() => setShowCanvas(false)} />
-          <div className="drawer">
-            <div className="drawer-header">
-              <div>Canvas Editor (beta)</div>
-              <div className="flex gap-2">
-                <button className="btn" onClick={() => setShowCanvas(false)}>Close</button>
-              </div>
-            </div>
-            <div className="drawer-body">
-              <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-                <button className="btn" onClick={() => setOverlays([...overlays, { type:'text', x: 60, y: 60, text: 'Text', color:'#e5e7eb', size:16 }])}>+ Text</button>
-                <button className="btn" onClick={() => setOverlays([...overlays, { type:'rect', x: 40, y: 40, w:120, h:60, color:'rgba(99,102,241,0.2)', stroke:'#6366f1' }])}>+ Rect</button>
-                {selectedIdx !== null && (
-                  <button className="btn" onClick={() => { const arr=[...overlays]; arr.splice(selectedIdx,1); setOverlays(arr); setSelectedIdx(null); }}>Delete</button>
-                )}
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 240px', gap:12 }}>
-                <svg
-                  ref={el => (svgRef.current = el)}
-                  width="100%" height="320"
-                  style={{ background:'var(--surface)', border:'1px solid var(--border)', backgroundImage: snapEnabled?`linear-gradient(transparent calc(${gridSize}px - 1px), rgba(0,0,0,0.04) 1px),linear-gradient(90deg, transparent calc(${gridSize}px - 1px), rgba(0,0,0,0.04) 1px)`:'none', backgroundSize: `${gridSize}px ${gridSize}px` }}
-                  onMouseMove={(e)=>{
-                    if (!drag) return;
-                    const svg = e.currentTarget.getBoundingClientRect();
-                    const rawX = (e.clientX - svg.left - drag.offsetX);
-                    const rawY = (e.clientY - svg.top - drag.offsetY);
-                    const x = snapEnabled ? Math.round(rawX/gridSize)*gridSize : rawX;
-                    const y = snapEnabled ? Math.round(rawY/gridSize)*gridSize : rawY;
-                    setOverlays(prev=> prev.map((o,idx)=> {
-                      if (idx!==drag.idx) return o;
-                      if (drag.mode==='move') {
-                        return { ...o, x: Math.max(0,Math.round(x)), y: Math.max(0,Math.round(y)) };
-                      }
-                      // resize
-                      if (o.type==='rect') {
-                        let nx=o.x, ny=o.y, nw=o.w, nh=o.h;
-                        const cx = Math.max(0, Math.round(rawX));
-                        const cy = Math.max(0, Math.round(rawY));
-                        if (drag.handle==='nw') { nw = (o.w + (o.x - cx)); nh = (o.h + (o.y - cy)); nx = cx; ny = cy; }
-                        if (drag.handle==='ne') { nw = (cx - o.x); nh = (o.h + (o.y - cy)); ny = cy; }
-                        if (drag.handle==='sw') { nw = (o.w + (o.x - cx)); nx = cx; nh = (cy - o.y); }
-                        if (drag.handle==='se') { nw = (cx - o.x); nh = (cy - o.y); }
-                        return { ...o, x:nx, y:ny, w: Math.max(10, Math.round(nw)), h: Math.max(10, Math.round(nh)) };
-                      }
-                      // text: change size based on vertical delta
-                      const dy = (e.clientY - svg.top) - (o.y);
-                      const nextSize = Math.max(8, Math.round((o.size||16) + (drag.handle==='se' || drag.handle==='ne' ? dy/10 : -dy/10)));
-                      return { ...o, size: nextSize };
-                    }));
-                  }}
-                  onMouseUp={()=> setDrag(null)}
-                  onMouseLeave={()=> setDrag(null)}
-                >
-                  {overlays.map((o, i) => o.type==='text' ? (
-                    <text
-                      key={i}
-                      x={o.x}
-                      y={o.y}
-                      fill={o.color}
-                      fontSize={o.size||16}
-                      onMouseDown={(e)=>{ 
-                        if (e.shiftKey) {
-                          setSelectedSet(prev=> { const next=new Set(prev); next.has(i)? next.delete(i): next.add(i); return next; });
-                        } else {
-                          setSelectedSet(new Set([i]));
-                        }
-                        setSelectedIdx(i);
-                        setDrag({ idx:i, offsetX: (e.clientX - (e.currentTarget as any).getBoundingClientRect().left), offsetY: (e.clientY - (e.currentTarget as any).getBoundingClientRect().top), mode:'move' }); 
-                      }}
-                      onDoubleClick={()=>{ const t = prompt('텍스트 편집', o.text || ''); if (t!==null) setOverlays(prev=> prev.map((p,idx)=> idx===i? { ...p, text:t }: p)); }}
-                      onWheel={(e)=>{ if (selectedIdx!==i) return; e.preventDefault(); const delta = e.deltaY>0?-2:2; setOverlays(prev=> prev.map((p,idx)=> idx===i? { ...p, size: Math.max(8, (p.size||16)+delta)}:p)); }}
-                      style={{ cursor:'move', userSelect:'none', outline: selectedIdx===i? '1px solid #6366f1':'none' }}
-                    >{o.text}</text>
-                  ) : (
-                      <rect
-                      key={i}
-                      x={o.x}
-                      y={o.y}
-                      width={o.w}
-                      height={o.h}
-                      fill={o.color}
-                      stroke={o.stroke}
-                      rx={o.r||0}
-                      opacity={o.opacity==null?1:o.opacity}
-                      onMouseDown={(e)=>{ 
-                        if (e.shiftKey) {
-                          setSelectedSet(prev=> { const next=new Set(prev); next.has(i)? next.delete(i): next.add(i); return next; });
-                        } else {
-                          setSelectedSet(new Set([i]));
-                        }
-                        setSelectedIdx(i);
-                        setDrag({ idx:i, offsetX: e.clientX - (e.currentTarget as any).getBoundingClientRect().left, offsetY: e.clientY - (e.currentTarget as any).getBoundingClientRect().top, mode:'move' }); 
-                      }}
-                      style={{ cursor:'move', outline: selectedIdx===i? '1px solid #6366f1':'none' }}
-                    />
-                  ))}
-                  {(selectedIdx!==null || selectedSet.size>0) && (()=>{
-                    const idx = selectedIdx ?? Array.from(selectedSet)[0];
-                    const o = overlays[idx];
-                    const handleSize = 6;
-                    if (o?.type==='rect') {
-                      return (
-                        <g>
-                          <rect x={o.x-1} y={o.y-1} width={o.w+2} height={o.h+2} fill="none" stroke="#6366f1" strokeDasharray="4 2" />
-                          {/* handles */}
-                          <rect x={o.x-handleSize} y={o.y-handleSize} width={handleSize} height={handleSize} fill="#6366f1" style={{cursor:'nwse-resize'}} onMouseDown={(e)=> setDrag({ idx:idx, offsetX: e.clientX - (svgRef.current!.getBoundingClientRect().left + o.x), offsetY: e.clientY - (svgRef.current!.getBoundingClientRect().top + o.y), mode:'resize', handle:'nw' })} />
-                          <rect x={o.x+o.w} y={o.y-handleSize} width={handleSize} height={handleSize} fill="#6366f1" style={{cursor:'nesw-resize'}} onMouseDown={(e)=> setDrag({ idx:idx, offsetX: e.clientX - (svgRef.current!.getBoundingClientRect().left + o.x+o.w), offsetY: e.clientY - (svgRef.current!.getBoundingClientRect().top + o.y), mode:'resize', handle:'ne' })} />
-                          <rect x={o.x-handleSize} y={o.y+o.h} width={handleSize} height={handleSize} fill="#6366f1" style={{cursor:'nesw-resize'}} onMouseDown={(e)=> setDrag({ idx:idx, offsetX: e.clientX - (svgRef.current!.getBoundingClientRect().left + o.x), offsetY: e.clientY - (svgRef.current!.getBoundingClientRect().top + o.y+o.h), mode:'resize', handle:'sw' })} />
-                          <rect x={o.x+o.w} y={o.y+o.h} width={handleSize} height={handleSize} fill="#6366f1" style={{cursor:'nwse-resize'}} onMouseDown={(e)=> setDrag({ idx:idx, offsetX: e.clientX - (svgRef.current!.getBoundingClientRect().left + o.x+o.w), offsetY: e.clientY - (svgRef.current!.getBoundingClientRect().top + o.y+o.h), mode:'resize', handle:'se' })} />
-                        </g>
-                      );
-                    }
-                    if (o?.type==='text') {
-                      return (
-                        <g>
-                          <text x={o.x} y={o.y} fontSize={o.size||16} fill="transparent" stroke="#6366f1" strokeDasharray="3 2">{o.text}</text>
-                          <rect x={o.x+(o.size||16)} y={o.y-(o.size||16)} width={6} height={6} fill="#6366f1" style={{cursor:'nwse-resize'}} onMouseDown={(e)=> setDrag({ idx:idx, offsetX: 0, offsetY: 0, mode:'resize', handle:'se' })} />
-                        </g>
-                      );
-                    }
-                    return null;
-                  })()}
-                </svg>
-                <div>
-                  <div className="muted" style={{ marginBottom:8 }}>Properties</div>
-                  {selectedIdx !== null ? (
-                    <>
-                      <div style={{ display:'grid', gap:8 }}>
-                        <label>Type: {overlays[selectedIdx].type}</label>
-                        {overlays[selectedIdx].type==='text' && (
-                          <>
-                            <label>Text</label>
-                            <input className="btn" value={overlays[selectedIdx].text} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, text:e.target.value }: o))} />
-                            <label>Size</label>
-                            <input type="number" className="btn" value={overlays[selectedIdx].size||16} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, size: Number(e.target.value) }: o))} />
-                          </>
-                        )}
-                        {overlays[selectedIdx].type==='rect' && (
-                          <>
-                            <label>Width</label>
-                            <input type="number" className="btn" value={overlays[selectedIdx].w} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, w: Number(e.target.value) }: o))} />
-                            <label>Height</label>
-                            <input type="number" className="btn" value={overlays[selectedIdx].h} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, h: Number(e.target.value) }: o))} />
-                            <label>Corner radius</label>
-                            <input type="number" className="btn" value={overlays[selectedIdx].r||0} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, r: Number(e.target.value) }: o))} />
-                            <label>Opacity</label>
-                            <input type="number" className="btn" value={overlays[selectedIdx].opacity==null?1:overlays[selectedIdx].opacity} step={0.05} min={0} max={1} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, opacity: Number(e.target.value) }: o))} />
-                          </>
-                        )}
-                        <label>X</label>
-                        <input type="number" className="btn" value={overlays[selectedIdx].x} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, x: Number(e.target.value) }: o))} />
-                        <label>Y</label>
-                        <input type="number" className="btn" value={overlays[selectedIdx].y} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, y: Number(e.target.value) }: o))} />
-                        <label>Color</label>
-                        <input type="color" className="btn" value={overlays[selectedIdx].color || '#ffffff'} onChange={(e)=>setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, color: e.target.value }: o))} />
-                        <label><input type="checkbox" checked={!!overlays[selectedIdx].locked} onChange={(e)=> setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, locked: e.target.checked }: o))} /> Lock</label>
-                        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6 }}>
-                          <button className="btn" onClick={()=> setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, x: 0 }: o))}>Align L</button>
-                          <button className="btn" onClick={()=> setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, y: 0 }: o))}>Align T</button>
-                          <button className="btn" onClick={()=> setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, x: Math.max(0, (overlaySize.w - (o.w||0))/2) }: o))}>Center X</button>
-                          <button className="btn" onClick={()=> setOverlays(prev=> prev.map((o,i)=> i===selectedIdx? { ...o, y: Math.max(0, (overlaySize.h - (o.h||0))/2) }: o))}>Center Y</button>
-                          <button className="btn" onClick={()=>{ const arr=[...overlays]; const it=arr.splice(selectedIdx,1)[0]; arr.push(it); setOverlays(arr); setSelectedIdx(arr.length-1); }}>Bring Front</button>
-                          <button className="btn" onClick={()=>{ const arr=[...overlays]; const it=arr.splice(selectedIdx,1)[0]; arr.unshift(it); setOverlays(arr); setSelectedIdx(0); }}>Send Back</button>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="muted">Select an item to edit</div>
-                  )}
-                  <div style={{ marginTop:12, display:'grid', gap:8 }}>
-                    <label className="flex items-center gap-2"><input type="checkbox" checked={snapEnabled} onChange={e=> setSnapEnabled(e.target.checked)} /> Snap to grid</label>
-                    <label>Grid size</label>
-                    <input type="number" className="btn" value={gridSize} onChange={e=> setGridSize(Math.max(2, Number(e.target.value)||10))} />
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button className="btn" onClick={undo}>Undo (Ctrl+Z)</button>
-                      <button className="btn" onClick={redo}>Redo (Ctrl+Shift+Z)</button>
-                    </div>
-                    <button className="btn" onClick={exportCanvasPNG}>Export PNG</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
+        <CanvasEditorDrawer
+          overlays={overlays}
+          setOverlays={setOverlays}
+          selectedIdx={selectedIdx}
+          setSelectedIdx={setSelectedIdx}
+          selectedSet={selectedSet}
+          setSelectedSet={setSelectedSet}
+          overlaySize={overlaySize}
+          setOverlaySize={setOverlaySize}
+          snapEnabled={snapEnabled}
+          setSnapEnabled={setSnapEnabled}
+          gridSize={gridSize}
+          setGridSize={setGridSize}
+          undo={undo}
+          redo={redo}
+          exportCanvasPNG={exportCanvasPNG}
+          onClose={()=> setShowCanvas(false)}
+          svgRef={svgRef}
+        />
       )}
 
       {showDataEditor && (
-        <div className="data-editor">
-          <div className="head">
-            <div>데이터 편집</div>
-            <div className="flex gap-2">
-              <button className="btn" onClick={()=> setShowDataEditor(false)}>닫기</button>
-            </div>
-          </div>
-          <div className="body">
-            <div style={{ marginBottom:8, display:'flex', gap:8 }}>
-              <button className="btn" onClick={()=> setTableRows([...tableRows, Object.fromEntries(tableCols.map(c=>[c,'' ]))])}>행 추가</button>
-              <button className="btn" onClick={()=> tableRows.length>0 && setTableRows(tableRows.slice(0,-1))}>행 삭제</button>
-              <button className="btn" onClick={()=> { const name = prompt('새 컬럼 이름', 'value'); if (!name) return; setTableCols([...tableCols, name]); setTableRows(tableRows.map(r=> ({...r, [name]: ''}))); }}>열 추가</button>
-            </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 32 }}></th>
-                  {tableCols.map((c, i)=> (
-                    <th key={i}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map((r, ri)=> (
-                  <tr
-                    key={ri}
-                    onDragOver={(e)=>{ e.preventDefault(); const rect=(e.currentTarget as HTMLTableRowElement).getBoundingClientRect(); const pos = (e.clientY - rect.top) < rect.height/2 ? 'top' : 'bottom'; setDragOverRowIndex(ri); setDragOverPosition(pos as any); }}
-                    onDragLeave={()=> { setDragOverRowIndex(null); setDragOverPosition(null); }}
-                    onDrop={(e)=>{ e.preventDefault(); if (draggingRowIndex===null) return; let from = draggingRowIndex; let insertIndex = ri + (dragOverPosition==='bottom' ? 1 : 0); const arr=[...tableRows]; const [moved] = arr.splice(from,1); if (from < insertIndex) insertIndex -= 1; if (insertIndex < 0) insertIndex = 0; if (insertIndex > arr.length) insertIndex = arr.length; arr.splice(insertIndex,0,moved); setTableRows(arr); 
-                      // Apply data changes immediately
-                      try {
-                        const values = arr.map(r => {
-                          const obj: any = {};
-                          tableCols.forEach(c => { obj[c] = parseMaybeNumber((r as any)[c]); });
-                          return obj;
-                        });
-                        const next = JSON.parse(JSON.stringify(spec));
-                        updateDataValues(next, values);
-                        setSpec(next); saveProject();
-                      } catch(err) { console.error('Failed to apply row reorder:', err); }
-                      setDraggingRowIndex(null); setDragOverRowIndex(null); setDragOverPosition(null); }}
-                    className={`${draggingRowIndex===ri ? 'dragging' : ''} ${dragOverRowIndex===ri && dragOverPosition==='top' ? 'drag-over-top' : ''} ${dragOverRowIndex===ri && dragOverPosition==='bottom' ? 'drag-over-bottom' : ''}`}
-                  >
-                    <td className="row-drag-cell">
-                      <span
-                        className="row-drag-handle"
-                        title="드래그하여 순서 변경"
-                        draggable
-                        onDragStart={(e)=>{ setDraggingRowIndex(ri); try { e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(ri)); } catch {} }}
-                        onDragEnd={()=> { setDraggingRowIndex(null); setDragOverRowIndex(null); setDragOverPosition(null); }}
-                      >⋮⋮</span>
-                    </td>
-                    {tableCols.map((c, ci)=> (
-                      <td key={ci}><input value={(r as any)[c]} onChange={e=>{ const v=e.target.value; setTableRows(prev=> prev.map((row, idx)=> idx===ri ? {...row, [c]: v} : row)); }} /></td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{ marginTop:12 }}>
-              <div className="muted" style={{ marginBottom:6 }}>팔레트</div>
-              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                {palette.map((col, i)=> (
-                  <input key={i} type="color" value={col} onChange={e=> setPalette(p=> p.map((v,idx)=> idx===i ? e.target.value : v))} />
-                ))}
-                <button className="btn" onClick={()=> setPalette(p=> [...p, '#4e79a7'])}>색상 추가</button>
-                {palette.length>0 && <button className="btn" onClick={()=> setPalette(p=> p.slice(0,-1))}>색상 제거</button>}
-              </div>
-            </div>
-          </div>
-          <div className="sticky-actions">
-            <button className="btn" onClick={applyDataEditor}>적용</button>
-          </div>
-        </div>
+        <DataEditorDrawer
+          spec={spec}
+          setSpec={setSpec}
+          tableCols={tableCols}
+          setTableCols={setTableCols}
+          tableRows={tableRows}
+          setTableRows={setTableRows}
+          palette={palette}
+          setPalette={setPalette}
+          onClose={()=> setShowDataEditor(false)}
+          saveProject={saveProject}
+        />
       )}
       {showWhiteboard && (
         <ExcalidrawEditor 
