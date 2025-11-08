@@ -204,6 +204,34 @@ export function setAxisOrderFromValues(spec: any): any {
         (node.encoding[ch] as any).scale = scale;
       }
     });
+    // Apply row order to categorical color as well (affects pie/arc slice order)
+    try {
+      const ce: any = enc.color;
+      const ct = String(ce?.type || '').toLowerCase();
+      const cf = ce?.field;
+      if ((ct === 'nominal' || ct === 'ordinal') && typeof cf === 'string' && values.length) {
+        const corder = Array.from(new Set(values.map((r:any)=> r?.[cf]).filter((v:any)=> v!==undefined))).map(String);
+        node.encoding = node.encoding || {};
+        // Do NOT mutate color.sort or reorder scale.domain on every drag; keep color->category mapping stable
+        node.encoding.color = { ...(ce || {}) } as any;
+        const cscale = { ...((node.encoding.color as any).scale || {}) } as any;
+        const existingDomain: any[] | undefined = Array.isArray(cscale.domain) ? cscale.domain.slice() : undefined;
+        if (!existingDomain || existingDomain.length === 0) {
+          // Initialize a stable domain once (alphabetical) so colors don't shuffle with row order
+          const initDomain = Array.from(new Set(values.map((r:any)=> r?.[cf]).filter((v:any)=> v!==undefined))).map(String).sort();
+          cscale.domain = initDomain;
+        }
+        (node.encoding.color as any).scale = cscale;
+        // Force stack/draw order via a numeric order index calculated from corder
+        const orderField = `__order_${cf}`;
+        const arrLiteral = JSON.stringify(corder);
+        const expr = `indexof(${arrLiteral}, ''+datum['${cf}'])`;
+        const transforms = Array.isArray((node as any).transform) ? (node as any).transform.filter((t:any)=> t?.as !== orderField) : [];
+        transforms.push({ calculate: expr, as: orderField });
+        (node as any).transform = transforms;
+        (node.encoding as any).order = { field: orderField, type: 'quantitative' } as any;
+      }
+    } catch {}
     if (Array.isArray(node.layer)) node.layer.forEach(applyToNode);
     if (node.spec) applyToNode(node.spec);
   };
